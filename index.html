@@ -20,10 +20,86 @@
     </section>
   </main>
   <script>
-    window.CVT = {
-      core: {},
-      app: {}
+    const mockVocabulary = [
+      ["analyze", "/AN-uh-lyze/", "v.", "fen xi", 4, 1200, "We need to analyze the results carefully."],
+      ["approach", "/uh-PROHCH/", "n./v.", "fang fa; jie jin", 3, 900, "Her approach made the problem easier."],
+      ["benefit", "/BEN-uh-fit/", "n./v.", "hao chu; shou yi", 3, 850, "Daily reading can benefit your vocabulary."],
+      ["context", "/KON-tekst/", "n.", "yu jing", 4, 1500, "The context helps explain the meaning."],
+      ["define", "/di-FYNE/", "v.", "ding yi", 3, 1300, "Can you define this word in English?"],
+      ["estimate", "/ES-tuh-mayt/", "v./n.", "gu suan", 4, 1700, "The test can estimate your vocabulary range."],
+      ["evidence", "/EV-uh-dens/", "n.", "zheng ju", 4, 1100, "The evidence supports the idea."],
+      ["focus", "/FOH-kus/", "n./v.", "zhuan zhu", 2, 700, "Focus on words you meet often."],
+      ["generate", "/JEN-uh-rayt/", "v.", "sheng cheng", 4, 1800, "The app can generate a short passage."],
+      ["identify", "/eye-DEN-tuh-fye/", "v.", "shi bie", 4, 1400, "Try to identify the key word."],
+      ["improve", "/im-PROOV/", "v.", "ti gao", 2, 650, "Speaking practice can improve fluency."],
+      ["include", "/in-KLOOD/", "v.", "bao kuo", 2, 500, "Each card should include an example."],
+      ["increase", "/in-KREES/", "v.", "zeng jia", 2, 600, "Review can increase your known score."],
+      ["method", "/METH-ud/", "n.", "fang fa", 3, 1000, "This method mixes review and new words."],
+      ["native", "/NAY-tiv/", "adj.", "mu yu de", 3, 1600, "The tool is for native Chinese speakers."],
+      ["option", "/OP-shun/", "n.", "xuan xiang", 3, 1250, "Choose the best option."],
+      ["passage", "/PAS-ij/", "n.", "duan wen", 4, 1900, "Read the passage aloud."],
+      ["practice", "/PRAK-tis/", "n./v.", "lian xi", 2, 750, "Regular practice builds confidence."],
+      ["progress", "/PROG-res/", "n.", "jin bu", 3, 950, "Your progress is saved locally."],
+      ["recognize", "/REK-ug-nyze/", "v.", "ren chu", 4, 1450, "Do you recognize this word?"],
+      ["review", "/ri-VYOO/", "n./v.", "fu xi", 2, 800, "Review difficult words more often."],
+      ["schedule", "/SKEJ-ool/", "n./v.", "ji hua; an pai", 4, 2100, "The review schedule changes over time."],
+      ["sentence", "/SEN-tens/", "n.", "ju zi", 2, 550, "Listen to one sentence at a time."],
+      ["similarity", "/sim-uh-LAR-uh-tee/", "n.", "xiang si du", 5, 2600, "Speech recognition can estimate similarity."],
+      ["smooth", "/SMOOTH/", "adj.", "liu chang", 3, 1550, "Mark the reading as smooth if it felt easy."],
+      ["source", "/SORS/", "n.", "lai yuan", 3, 1350, "Compare your speech with the source text."],
+      ["status", "/STAY-tus/", "n.", "zhuang tai", 4, 1750, "Each word has a learning status."],
+      ["structure", "/STRUK-cher/", "n.", "jie gou", 4, 1650, "A clear structure helps learning."],
+      ["support", "/suh-PORT/", "v./n.", "zhi chi", 2, 680, "The browser may support speech recognition."],
+      ["target", "/TAR-get/", "n./v.", "mu biao", 3, 1050, "Target words are highlighted."],
+      ["translate", "/trans-LAYT/", "v.", "fan yi", 3, 1150, "You can translate the passage."],
+      ["update", "/up-DAYT/", "v.", "geng xin", 3, 1180, "The app will update your score."],
+      ["visual", "/VIZH-oo-ul/", "adj.", "shi jue de", 4, 2200, "Visual markers show word status."],
+      ["vocabulary", "/voh-KAB-yuh-lair-ee/", "n.", "ci hui", 2, 400, "Vocabulary grows through repeated use."],
+      ["available", "/uh-VAY-luh-bul/", "adj.", "ke yong de", 3, 980, "Manual feedback is available in every browser."],
+      ["accurate", "/AK-yur-it/", "adj.", "zhun que de", 4, 2000, "The estimate is useful but not perfectly accurate."]
+    ].map((item, index) => ({
+      id: index + 1,
+      word: item[0],
+      phonetic: item[1],
+      pos: item[2],
+      zh: item[3],
+      level: item[4],
+      frequencyRank: item[5],
+      groupId: Math.floor(index / 10) + 1,
+      example: item[6],
+      knownScore: 0,
+      clickCount: 0,
+      correctCount: 0,
+      wrongCount: 0,
+      readCount: 0,
+      lastReviewedAt: "",
+      nextReviewAt: "",
+      status: "new"
+    }));
+
+    const core = {
+      createDefaultState() {
+        return {
+          user: {
+            estimatedVocabulary: 5000,
+            currentGroupId: 1,
+            masteredWords: 0,
+            learningWords: 0,
+            newWordRatio: 0.1,
+            targetWpm: 140,
+            totalStudyMinutes: 0,
+            streakDays: 0
+          },
+          vocabulary: mockVocabulary.map((word) => ({ ...word })),
+          activity: {},
+          tests: [],
+          reading: { totalReadCount: 0, lastAccuracy: null }
+        };
+      }
     };
+
+    // Task 1 static contract marker: core:
+    window.CVT = { core, app: {} };
   </script>
 </body>
 </html>
