@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Context Vocabulary Trainer</title>
+</head>
+<body>
+  <main>
+    <section id="dashboard"></section>
+    <section id="study-view">
+      <article id="passage"></article>
+      <aside id="word-card"></aside>
+    </section>
+    <section id="test-view"></section>
+    <section id="stats-view"></section>
+    <section id="data-view">
+      <button id="export-progress" type="button">Export progress</button>
+      <input id="import-progress" type="file" accept="application/json">
+    </section>
+  </main>
+  <script>
+    window.CVT = {
+      core: {},
+      app: {}
+    };
+  </script>
+</body>
+</html>
