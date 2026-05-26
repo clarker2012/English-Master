@@ -282,7 +282,7 @@
           vocabulary: mockVocabulary.map((word) => ({ ...word })),
           activity: {},
           tests: [],
-          reading: { totalReadCount: 0, lastAccuracy: null }
+          reading: { totalReadCount: 0, lastAccuracy: null, studiedWordIdsByDay: {} }
         };
       },
 
@@ -418,6 +418,14 @@
         return matches / Math.max(sourceWords.size, spokenWords.size);
       },
 
+      getSentenceTargetWordIds(state, passage, sentenceIndex) {
+        const sentenceWords = new Set(this.normalizeWords(passage.sentences[sentenceIndex] || ""));
+        const targetIds = new Set(passage.targetWordIds || []);
+        return state.vocabulary
+          .filter((word) => targetIds.has(word.id) && sentenceWords.has(word.word.toLowerCase()))
+          .map((word) => word.id);
+      },
+
       applyWordEvent(word, eventName) {
         const updated = { ...word };
         if (eventName === "click") {
@@ -485,6 +493,7 @@
       state: core.createDefaultState(),
       passage: null,
       currentSentenceIndex: 0,
+      guidedActive: false,
       showTranslation: false,
       selectedWordId: null,
       testSession: { questions: [], index: 0, answers: [], result: null },
@@ -502,6 +511,7 @@
         document.getElementById("generate-passage").addEventListener("click", () => {
           this.passage = core.generatePassage(this.state);
           this.currentSentenceIndex = 0;
+          this.guidedActive = false;
           this.render();
         });
         document.getElementById("toggle-translation").addEventListener("click", () => {
@@ -611,7 +621,14 @@
       },
 
       guidedReading() {
-        this.currentSentenceIndex = 0;
+        if (!this.guidedActive) {
+          this.currentSentenceIndex = 0;
+          this.guidedActive = true;
+        }
+        this.currentSentenceIndex = Math.min(
+          this.currentSentenceIndex,
+          Math.max(0, this.passage.sentences.length - 1)
+        );
         this.renderPassage();
         const sentence = this.passage.sentences[this.currentSentenceIndex] || "";
         this.speak(sentence, () => this.promptReadFeedback(sentence));
@@ -633,40 +650,68 @@
       trySpeechRecognition(sentence) {
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!Recognition) return;
+        const speechFeedback = document.getElementById("speech-feedback");
+        const setSpeechFallback = (message) => {
+          if (speechFeedback) speechFeedback.textContent = message;
+        };
         const recognition = new Recognition();
+        let receivedResult = false;
         recognition.lang = "en-US";
         recognition.onresult = (event) => {
+          receivedResult = true;
           const transcript = event.results?.[0]?.[0]?.transcript || "";
           const similarity = core.textSimilarity(sentence, transcript);
-          const speechFeedback = document.getElementById("speech-feedback");
           if (speechFeedback) {
             speechFeedback.textContent = `Speech similarity: ${Math.round(similarity * 100)}%`;
           }
           this.state.reading.lastAccuracy = similarity;
         };
-        recognition.start();
+        recognition.onerror = () => {
+          setSpeechFallback("Speech recognition unavailable. Use manual reading feedback.");
+        };
+        recognition.onend = () => {
+          if (!receivedResult) setSpeechFallback("No speech detected. Use manual reading feedback.");
+        };
+        try {
+          recognition.start();
+        } catch (error) {
+          setSpeechFallback("Could not start speech recognition. Use manual reading feedback.");
+        }
       },
 
       applyReadingFeedback(eventName) {
         if (!["readSmooth", "readOkay", "readDifficult"].includes(eventName)) return;
-        const targetIds = new Set(this.passage.targetWordIds);
+        const sentenceTargetIds = core.getSentenceTargetWordIds(this.state, this.passage, this.currentSentenceIndex);
+        const targetIds = new Set(sentenceTargetIds);
         this.state.vocabulary = this.state.vocabulary.map((word) => (
           targetIds.has(word.id) ? core.applyWordEvent(word, eventName) : word
         ));
-        this.recordReadingActivity();
+        this.recordReadingActivity(sentenceTargetIds);
+        const hasNextSentence = this.currentSentenceIndex < this.passage.sentences.length - 1;
         this.currentSentenceIndex = Math.min(
           this.currentSentenceIndex + 1,
           Math.max(0, this.passage.sentences.length - 1)
         );
+        if (!hasNextSentence) this.guidedActive = false;
         this.render();
         const feedback = document.getElementById("reading-feedback");
-        if (feedback) feedback.innerHTML = `<p class="muted">Reading feedback recorded.</p>`;
+        if (feedback) {
+          feedback.innerHTML = hasNextSentence
+            ? `<p class="muted">Reading feedback recorded.</p><button id="continue-reading" type="button">Continue</button>`
+            : `<p class="muted">Reading feedback recorded. Session complete.</p>`;
+          const continueButton = feedback.querySelector ? feedback.querySelector("#continue-reading") : null;
+          if (continueButton) continueButton.addEventListener("click", () => this.guidedReading());
+        }
       },
 
-      recordReadingActivity() {
+      recordReadingActivity(wordIds = []) {
         const todayKey = core.localDateKey ? core.localDateKey() : new Date().toISOString().slice(0, 10);
         const today = this.state.activity[todayKey] || { studiedWords: 0, readCount: 0 };
-        today.studiedWords += this.passage.targetWordIds.length;
+        if (!this.state.reading.studiedWordIdsByDay) this.state.reading.studiedWordIdsByDay = {};
+        const studiedIds = new Set(this.state.reading.studiedWordIdsByDay[todayKey] || []);
+        wordIds.forEach((wordId) => studiedIds.add(wordId));
+        this.state.reading.studiedWordIdsByDay[todayKey] = [...studiedIds];
+        today.studiedWords = studiedIds.size;
         today.readCount += 1;
         this.state.activity[todayKey] = today;
         this.state.reading.totalReadCount += 1;

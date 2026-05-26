@@ -41,18 +41,19 @@ function createFakeElement(id, className = "") {
     },
     querySelectorAll(selector) {
       if (selector !== "[data-reading-event]" || !this.innerHTML.includes("data-reading-event")) return [];
-      return ["readSmooth", "readOkay", "readDifficult"].map((eventName) => ({
+      this.readingButtons = ["readSmooth", "readOkay", "readDifficult"].map((eventName) => ({
         dataset: { readingEvent: eventName },
+        listeners: {},
         addEventListener(type, handler) {
-          this.listeners = this.listeners || {};
           this.listeners[type] = handler;
         }
       }));
+      return this.readingButtons;
     }
   };
 }
 
-async function loadAppWithFakeDocument() {
+async function loadAppWithFakeDocument(options = {}) {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
   const elements = new Map();
@@ -111,6 +112,10 @@ async function loadAppWithFakeDocument() {
     clearTimeout,
     console
   };
+  if (options.Recognition) {
+    context.SpeechRecognition = options.Recognition;
+    context.webkitSpeechRecognition = options.Recognition;
+  }
   context.window = context;
   vm.createContext(context);
   for (const script of scripts) vm.runInContext(script, context);
@@ -282,6 +287,21 @@ test("textSimilarity scores near readings above unrelated text", async () => {
   assert.ok(core.textSimilarity("read the passage aloud", "different words") < 0.5);
 });
 
+test("getSentenceTargetWordIds returns only target words present in that sentence", async () => {
+  const core = await loadCore();
+  const state = core.createDefaultState();
+  const passage = {
+    sentences: [
+      "Analyze this sentence carefully.",
+      "The benefit arrives later."
+    ],
+    targetWordIds: [1, 3, 23]
+  };
+
+  assert.deepEqual([...core.getSentenceTargetWordIds(state, passage, 0)], [1, 23]);
+  assert.deepEqual([...core.getSentenceTargetWordIds(state, passage, 1)], [3]);
+});
+
 test("app init renders dashboard passage and word card through DOMContentLoaded", async () => {
   const { elements } = await loadAppWithFakeDocument();
   assert.match(elements.get("dashboard").innerHTML, /Vocabulary/);
@@ -299,6 +319,73 @@ test("reading controls bind playback and guided feedback", async () => {
   assert.match(elements.get("reading-feedback").innerHTML, /Smooth/);
   assert.match(elements.get("reading-feedback").innerHTML, /Okay/);
   assert.match(elements.get("reading-feedback").innerHTML, /Difficult/);
+});
+
+test("guided reading resumes active sentence and feedback advances with scoped word updates", async () => {
+  const { app, elements } = await loadAppWithFakeDocument();
+  app.passage = {
+    title: "Scoped practice",
+    sentences: [
+      "Analyze this sentence.",
+      "Benefit comes next."
+    ],
+    text: "Analyze this sentence. Benefit comes next.",
+    zh: "",
+    targetWordIds: [1, 3]
+  };
+  app.currentSentenceIndex = 1;
+  app.guidedActive = true;
+
+  app.guidedReading();
+  assert.equal(app.currentSentenceIndex, 1);
+
+  app.currentSentenceIndex = 0;
+  app.promptReadFeedback(app.passage.sentences[0]);
+  const smoothButton = elements.get("reading-feedback").readingButtons.find((button) => (
+    button.dataset.readingEvent === "readSmooth"
+  ));
+  smoothButton.listeners.click();
+
+  assert.equal(app.state.vocabulary.find((word) => word.id === 1).readCount, 1);
+  assert.equal(app.state.vocabulary.find((word) => word.id === 3).readCount, 0);
+  assert.equal(app.currentSentenceIndex, 1);
+  assert.match(elements.get("reading-feedback").innerHTML, /Continue|Next/);
+});
+
+test("reading activity counts unique studied target words without repeat accumulation", async () => {
+  const { app } = await loadAppWithFakeDocument();
+  app.passage = {
+    title: "Activity practice",
+    sentences: [
+      "Analyze this sentence.",
+      "Analyze this sentence again.",
+      "Benefit comes next."
+    ],
+    text: "Analyze this sentence. Analyze this sentence again. Benefit comes next.",
+    zh: "",
+    targetWordIds: [1, 3]
+  };
+  app.recordReadingActivity([1]);
+  app.recordReadingActivity([1]);
+  app.recordReadingActivity([3]);
+
+  const todayEntry = app.state.activity[Object.keys(app.state.activity)[0]];
+  assert.equal(todayEntry.studiedWords, 2);
+  assert.equal(todayEntry.readCount, 3);
+});
+
+test("speech recognition start errors show fallback text without throwing", async () => {
+  class ThrowingRecognition {
+    start() {
+      throw new Error("permission denied");
+    }
+  }
+  const { app, elements } = await loadAppWithFakeDocument({ Recognition: ThrowingRecognition });
+  const speechFeedback = createFakeElement("speech-feedback");
+  elements.set("speech-feedback", speechFeedback);
+
+  assert.doesNotThrow(() => app.trySpeechRecognition("Analyze this sentence."));
+  assert.match(speechFeedback.textContent, /Could not start speech recognition|Speech recognition unavailable/);
 });
 
 test("full render preserves the selected word card", async () => {
