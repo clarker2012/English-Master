@@ -25,3 +25,18 @@ test("index.html exposes the CVT app namespace", () => {
   assert.match(html, /core:/);
   assert.match(html, /app:/);
 });
+
+test("index.html includes main navigation and study controls", () => {
+  for (const text of [
+    "Study",
+    "Test",
+    "Stats",
+    "Data",
+    "Generate passage",
+    "Show Chinese",
+    "Play passage",
+    "Guided reading"
+  ]) {
+    assert.match(html, new RegExp(text));
+  }
+});

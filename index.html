@@ -4,21 +4,210 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Context Vocabulary Trainer</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f4;
+      --surface: #ffffff;
+      --ink: #1e2528;
+      --muted: #64706f;
+      --line: #dbe1dc;
+      --accent: #216b5b;
+      --accent-2: #b85c38;
+      --review: #7b5ea7;
+      --new: #d99422;
+      --mastered: #477a54;
+      --danger: #b43b3b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Arial, "Microsoft YaHei", sans-serif;
+      line-height: 1.5;
+    }
+    button, input { font: inherit; }
+    button, .file-button {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--ink);
+      border-radius: 8px;
+      padding: 10px 12px;
+      cursor: pointer;
+    }
+    button:hover, .file-button:hover { border-color: var(--accent); }
+    .app-shell { max-width: 1180px; margin: 0 auto; padding: 24px; }
+    .app-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: end;
+      margin-bottom: 18px;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: 28px; margin-bottom: 0; }
+    h2 { font-size: 20px; }
+    .eyebrow {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tab.is-active { background: var(--accent); color: white; border-color: var(--accent); }
+    .dashboard {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .metric, .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .metric strong { display: block; font-size: 22px; }
+    .metric span, .muted { color: var(--muted); }
+    .view[hidden] { display: none; }
+    .study-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 16px;
+      align-items: start;
+    }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: start;
+      margin-bottom: 12px;
+    }
+    .passage {
+      font-size: 18px;
+      line-height: 1.9;
+    }
+    .word-token {
+      border: 0;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      padding: 1px 2px;
+      border-radius: 4px;
+    }
+    .word-token.status-new { border-bottom-color: var(--new); background: #fff3d9; }
+    .word-token.status-learning, .word-token.status-review { border-bottom-color: var(--review); background: #f1ebfb; }
+    .word-token.status-mastered { border-bottom-color: var(--mastered); color: var(--mastered); }
+    .sentence-active { background: #edf7f3; border-radius: 6px; }
+    .translation {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .side-column { display: grid; gap: 16px; }
+    .button-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .range-label { display: flex; justify-content: space-between; margin-bottom: 6px; }
+    input[type="range"] { width: 100%; margin-bottom: 12px; }
+    input[type="file"] { max-width: 100%; }
+    .file-button { display: inline-block; text-align: center; }
+    .danger { color: var(--danger); border-color: #e7b7b7; }
+    .stats-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    pre { white-space: pre-wrap; overflow: auto; }
+    @media (max-width: 820px) {
+      .app-shell { padding: 14px; }
+      .app-header { align-items: stretch; flex-direction: column; }
+      .dashboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .study-layout { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: 1fr; }
+      .button-grid { grid-template-columns: 1fr; }
+    }
+  </style>
 </head>
 <body>
-  <main>
-    <section id="dashboard"></section>
-    <section id="study-view">
-      <article id="passage"></article>
-      <aside id="word-card"></aside>
-    </section>
-    <section id="test-view"></section>
-    <section id="stats-view"></section>
-    <section id="data-view">
-      <button id="export-progress" type="button">Export progress</button>
-      <input id="import-progress" type="file" accept="application/json">
-    </section>
-  </main>
+  <div class="app-shell">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Local learning tool</p>
+        <h1>Context Vocabulary Trainer</h1>
+      </div>
+      <nav class="tabs" aria-label="Main sections">
+        <button class="tab is-active" data-view="study-view" type="button">Study</button>
+        <button class="tab" data-view="test-view" type="button">Test</button>
+        <button class="tab" data-view="stats-view" type="button">Stats</button>
+        <button class="tab" data-view="data-view" type="button">Data</button>
+      </nav>
+    </header>
+
+    <section id="dashboard" class="dashboard" aria-label="Learning dashboard"></section>
+
+    <main>
+      <section id="study-view" class="view is-active">
+        <section class="study-layout">
+          <article class="panel passage-panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Current passage</p>
+                <h2 id="passage-title">Context Practice Session</h2>
+              </div>
+              <button id="generate-passage" type="button">Generate passage</button>
+            </div>
+            <article id="passage" class="passage"></article>
+            <p id="translation" class="translation" hidden></p>
+          </article>
+
+          <aside class="side-column">
+            <section id="word-card" class="panel word-card" aria-live="polite"></section>
+            <section class="panel controls">
+              <h2>Reading controls</h2>
+              <label class="range-label" for="wpm-control">WPM <span id="wpm-value">140</span></label>
+              <input id="wpm-control" type="range" min="120" max="200" value="140" step="5">
+              <div class="button-grid">
+                <button id="toggle-translation" type="button">Show Chinese</button>
+                <button id="play-passage" type="button">Play passage</button>
+                <button id="play-sentence" type="button">Play sentence</button>
+                <button id="guided-reading" type="button">Guided reading</button>
+              </div>
+              <div id="reading-feedback" class="feedback"></div>
+            </section>
+          </aside>
+        </section>
+      </section>
+
+      <section id="test-view" class="view" hidden>
+        <div class="panel test-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Vocabulary estimate</p>
+              <h2>Quick range test</h2>
+            </div>
+            <button id="start-test" type="button">Start test</button>
+          </div>
+          <div id="test-content"></div>
+        </div>
+      </section>
+
+      <section id="stats-view" class="view" hidden>
+        <div id="stats-content" class="stats-grid"></div>
+      </section>
+
+      <section id="data-view" class="view" hidden>
+        <div class="panel data-panel">
+          <h2>Progress data</h2>
+          <div class="button-grid">
+            <button id="export-progress" type="button">Export progress</button>
+            <label class="file-button" for="import-progress">Import progress</label>
+            <input id="import-progress" type="file" accept="application/json">
+            <button id="reset-progress" class="danger" type="button">Reset progress</button>
+          </div>
+          <p class="muted">Vocabulary JSON import is reserved for the full 20,000-word version.</p>
+          <pre id="data-status" aria-live="polite"></pre>
+        </div>
+      </section>
+    </main>
+  </div>
   <script>
     const mockVocabulary = [
       ["analyze", "/AN-uh-lyze/", "v.", "fen xi", 4, 1200, "We need to analyze the results carefully."],
