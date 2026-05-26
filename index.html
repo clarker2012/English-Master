@@ -294,17 +294,81 @@
         }, null, 2);
       },
 
+      normalizeProgressState(rawState) {
+        if (!Array.isArray(rawState?.vocabulary)) throw new Error("Invalid progress file");
+        const defaults = this.createDefaultState();
+        const safeNumber = (value, fallback) => Number.isFinite(value) ? value : fallback;
+        const safeObject = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+        const safeString = (value, fallback) => typeof value === "string" && value.trim() ? value : fallback;
+        const validStatuses = new Set(["new", "learning", "review", "mastered"]);
+        const rawWordsById = new Map(rawState.vocabulary
+          .filter((word) => word && typeof word === "object" && Number.isFinite(word.id))
+          .map((word) => [word.id, word]));
+
+        const vocabulary = defaults.vocabulary.map((defaultWord) => {
+          const rawWord = rawWordsById.get(defaultWord.id);
+          if (!rawWord) return { ...defaultWord };
+          return {
+            ...defaultWord,
+            word: safeString(rawWord.word, defaultWord.word),
+            phonetic: safeString(rawWord.phonetic, defaultWord.phonetic),
+            pos: safeString(rawWord.pos, defaultWord.pos),
+            zh: safeString(rawWord.zh, defaultWord.zh),
+            level: safeNumber(rawWord.level, defaultWord.level),
+            frequencyRank: safeNumber(rawWord.frequencyRank, defaultWord.frequencyRank),
+            groupId: safeNumber(rawWord.groupId, defaultWord.groupId),
+            example: safeString(rawWord.example, defaultWord.example),
+            knownScore: safeNumber(rawWord.knownScore, defaultWord.knownScore),
+            clickCount: safeNumber(rawWord.clickCount, defaultWord.clickCount),
+            correctCount: safeNumber(rawWord.correctCount, defaultWord.correctCount),
+            wrongCount: safeNumber(rawWord.wrongCount, defaultWord.wrongCount),
+            readCount: safeNumber(rawWord.readCount, defaultWord.readCount),
+            lastReviewedAt: typeof rawWord.lastReviewedAt === "string" ? rawWord.lastReviewedAt : defaultWord.lastReviewedAt,
+            nextReviewAt: typeof rawWord.nextReviewAt === "string" ? rawWord.nextReviewAt : defaultWord.nextReviewAt,
+            status: validStatuses.has(rawWord.status) ? rawWord.status : defaultWord.status
+          };
+        });
+
+        const rawUser = safeObject(rawState.user);
+        const rawReading = safeObject(rawState.reading);
+        return {
+          ...defaults,
+          user: {
+            ...defaults.user,
+            estimatedVocabulary: safeNumber(rawUser.estimatedVocabulary, defaults.user.estimatedVocabulary),
+            currentGroupId: safeNumber(rawUser.currentGroupId, defaults.user.currentGroupId),
+            masteredWords: safeNumber(rawUser.masteredWords, defaults.user.masteredWords),
+            learningWords: safeNumber(rawUser.learningWords, defaults.user.learningWords),
+            newWordRatio: safeNumber(rawUser.newWordRatio, defaults.user.newWordRatio),
+            targetWpm: safeNumber(rawUser.targetWpm, defaults.user.targetWpm),
+            totalStudyMinutes: safeNumber(rawUser.totalStudyMinutes, defaults.user.totalStudyMinutes),
+            streakDays: safeNumber(rawUser.streakDays, defaults.user.streakDays)
+          },
+          vocabulary,
+          activity: safeObject(rawState.activity),
+          tests: Array.isArray(rawState.tests) ? rawState.tests : defaults.tests,
+          reading: {
+            ...defaults.reading,
+            totalReadCount: safeNumber(rawReading.totalReadCount, defaults.reading.totalReadCount),
+            lastAccuracy: rawReading.lastAccuracy === null || Number.isFinite(rawReading.lastAccuracy)
+              ? rawReading.lastAccuracy
+              : defaults.reading.lastAccuracy,
+            studiedWordIdsByDay: safeObject(rawReading.studiedWordIdsByDay)
+          }
+        };
+      },
+
       parseProgress(jsonText) {
         try {
           const progress = JSON.parse(jsonText);
           if (
             progress?.version !== 1 ||
-            !progress.state?.user ||
+            !progress.state ||
             !Array.isArray(progress.state?.vocabulary)
           ) {
             throw new Error("Invalid progress file");
           }
-          return progress.state;
+          return this.normalizeProgressState(progress.state);
         } catch (error) {
           throw new Error("Invalid progress file");
         }
@@ -571,8 +635,14 @@
         }
       },
 
-      saveState() {
-        localStorage.setItem(storageKey, core.serializeProgress(this.state));
+      saveState(state = this.state) {
+        try {
+          localStorage.setItem(storageKey, core.serializeProgress(state));
+          return true;
+        } catch (error) {
+          this.writeDataStatus("Could not save progress locally. Browser storage may be full or unavailable.");
+          return false;
+        }
       },
 
       writeDataStatus(message) {
@@ -586,8 +656,10 @@
         const link = document.createElement("a");
         link.href = url;
         link.download = "progress.json";
+        if (document.body) document.body.appendChild(link);
         link.click();
-        URL.revokeObjectURL(url);
+        if (link.remove) link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
         this.writeDataStatus("Progress exported to progress.json.");
       },
 
@@ -595,13 +667,17 @@
         const file = event.target.files?.[0];
         if (!file) return;
         try {
-          this.state = core.parseProgress(await file.text());
+          const nextState = core.parseProgress(await file.text());
+          if (!this.saveState(nextState)) {
+            this.writeDataStatus("Could not save imported progress. Current progress was not changed.");
+            return;
+          }
+          this.state = nextState;
           this.passage = core.generatePassage(this.state);
           this.currentSentenceIndex = 0;
           this.guidedActive = false;
           this.selectedWordId = null;
           this.testSession = { questions: [], index: 0, answers: [], result: null };
-          this.saveState();
           this.render();
           this.writeDataStatus("Progress imported.");
         } catch (error) {

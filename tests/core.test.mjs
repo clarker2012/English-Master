@@ -32,9 +32,18 @@ function createFakeElement(id, className = "") {
     innerHTML: "",
     textContent: "",
     value: "",
+    href: "",
+    download: "",
+    clicked: false,
     listeners: {},
     classList: {
       toggle() {}
+    },
+    click() {
+      this.clicked = true;
+    },
+    remove() {
+      this.removed = true;
     },
     addEventListener(type, handler) {
       this.listeners[type] = handler;
@@ -89,10 +98,24 @@ async function loadAppWithFakeDocument(options = {}) {
     elements.set(id, createFakeElement(id));
   }
 
+  const createdElements = [];
+  const appendedElements = [];
   const document = {
+    body: {
+      appendChild(element) {
+        appendedElements.push(element);
+        element.appended = true;
+        return element;
+      }
+    },
     domContentLoadedHandler: null,
     addEventListener(type, handler) {
       if (type === "DOMContentLoaded") this.domContentLoadedHandler = handler;
+    },
+    createElement(tagName) {
+      const element = createFakeElement(tagName);
+      createdElements.push(element);
+      return element;
     },
     getElementById(id) {
       return elements.get(id) || null;
@@ -105,14 +128,24 @@ async function loadAppWithFakeDocument(options = {}) {
       return [];
     }
   };
+  const revokedUrls = [];
+  const timeoutCallbacks = [];
   const context = {
     window: {},
     document,
-    localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+    localStorage: options.localStorage || { getItem() { return null; }, setItem() {}, removeItem() {} },
     speechSynthesis: undefined,
     Blob,
-    URL: { createObjectURL() { return "blob:test"; }, revokeObjectURL() {} },
-    setTimeout,
+    URL: options.URL || {
+      createObjectURL() { return "blob:test"; },
+      revokeObjectURL(url) {
+        revokedUrls.push(url);
+      }
+    },
+    setTimeout: options.setTimeout || ((callback) => {
+      timeoutCallbacks.push(callback);
+      return timeoutCallbacks.length;
+    }),
     clearTimeout,
     console
   };
@@ -124,7 +157,7 @@ async function loadAppWithFakeDocument(options = {}) {
   vm.createContext(context);
   for (const script of scripts) vm.runInContext(script, context);
   document.domContentLoadedHandler();
-  return { app: context.window.CVT.app, elements };
+  return { app: context.window.CVT.app, elements, createdElements, appendedElements, revokedUrls, timeoutCallbacks };
 }
 
 test("default state matches MVP learning defaults", async () => {
@@ -307,6 +340,69 @@ test("parseProgress rejects invalid progress payloads", async () => {
   assert.throws(() => core.parseProgress("{}"), /Invalid progress file/);
 });
 
+test("parseProgress normalizes incomplete progress payloads with safe defaults", async () => {
+  const core = await loadCore();
+  const defaults = core.createDefaultState();
+  const importedWord = {
+    id: defaults.vocabulary[0].id,
+    word: defaults.vocabulary[0].word,
+    phonetic: defaults.vocabulary[0].phonetic,
+    pos: defaults.vocabulary[0].pos,
+    zh: defaults.vocabulary[0].zh,
+    level: defaults.vocabulary[0].level,
+    frequencyRank: defaults.vocabulary[0].frequencyRank,
+    groupId: defaults.vocabulary[0].groupId,
+    example: defaults.vocabulary[0].example,
+    knownScore: 3,
+    clickCount: 2,
+    correctCount: 1,
+    wrongCount: 4,
+    readCount: 5,
+    lastReviewedAt: "2026-05-26",
+    nextReviewAt: "2026-05-27",
+    status: "review"
+  };
+
+  const state = core.parseProgress(JSON.stringify({
+    version: 1,
+    state: {
+      user: { targetWpm: 180 },
+      vocabulary: [importedWord]
+    }
+  }));
+
+  assert.equal(state.user.estimatedVocabulary, defaults.user.estimatedVocabulary);
+  assert.equal(state.user.targetWpm, 180);
+  assert.deepEqual(Object.keys(state.activity), []);
+  assert.equal(state.tests.length, 0);
+  assert.equal(state.reading.totalReadCount, defaults.reading.totalReadCount);
+  assert.equal(state.reading.lastAccuracy, defaults.reading.lastAccuracy);
+  assert.deepEqual(Object.keys(state.reading.studiedWordIdsByDay), []);
+  assert.equal(state.vocabulary.length, defaults.vocabulary.length);
+  assert.equal(state.vocabulary[0].knownScore, 3);
+  assert.equal(state.vocabulary[0].status, "review");
+  assert.doesNotThrow(() => core.generatePassage(state));
+  assert.doesNotThrow(() => core.deriveMetrics(state));
+});
+
+test("parseProgress rejects non-array vocabulary and falls back for unusable vocabulary records", async () => {
+  const core = await loadCore();
+  const defaults = core.createDefaultState();
+
+  assert.throws(() => core.parseProgress(JSON.stringify({
+    version: 1,
+    state: { user: {}, vocabulary: {} }
+  })), /Invalid progress file/);
+
+  const state = core.parseProgress(JSON.stringify({
+    version: 1,
+    state: { user: {}, vocabulary: [{ id: defaults.vocabulary[0].id, word: "" }] }
+  }));
+
+  assert.equal(state.vocabulary.length, defaults.vocabulary.length);
+  assert.deepEqual(state.vocabulary, defaults.vocabulary);
+});
+
 test("getSentenceTargetWordIds returns only target words present in that sentence", async () => {
   const core = await loadCore();
   const state = core.createDefaultState();
@@ -327,6 +423,49 @@ test("app init renders dashboard passage and word card through DOMContentLoaded"
   assert.match(elements.get("dashboard").innerHTML, /Vocabulary/);
   assert.match(elements.get("passage").innerHTML, /word-token/);
   assert.match(elements.get("word-card").innerHTML, /Select a highlighted word/);
+});
+
+test("importProgress leaves current state intact when saving imported progress fails", async () => {
+  const storedValues = [];
+  const localStorage = {
+    getItem() { return null; },
+    setItem(_key, value) {
+      storedValues.push(value);
+      throw new Error("quota exceeded");
+    },
+    removeItem() {}
+  };
+  const { app, elements } = await loadAppWithFakeDocument({ localStorage });
+  const originalState = app.state;
+  const nextState = JSON.parse(JSON.stringify(app.state));
+  nextState.user.targetWpm = 190;
+
+  await app.importProgress({
+    target: {
+      files: [{ text: async () => JSON.stringify({ version: 1, state: nextState }) }],
+      value: "progress.json"
+    }
+  });
+
+  assert.equal(app.state, originalState);
+  assert.notEqual(app.state.user.targetWpm, 190);
+  assert.match(elements.get("data-status").textContent, /Could not save imported progress/);
+  assert.equal(storedValues.length, 1);
+});
+
+test("exportProgress appends the download link and revokes the object URL asynchronously", async () => {
+  const { app, appendedElements, revokedUrls, timeoutCallbacks } = await loadAppWithFakeDocument();
+
+  app.exportProgress();
+
+  assert.equal(appendedElements.length, 1);
+  assert.equal(appendedElements[0].download, "progress.json");
+  assert.equal(appendedElements[0].clicked, true);
+  assert.equal(appendedElements[0].removed, true);
+  assert.deepEqual(revokedUrls, []);
+
+  timeoutCallbacks[0]();
+  assert.deepEqual(revokedUrls, ["blob:test"]);
 });
 
 test("reading controls bind playback and guided feedback", async () => {
