@@ -40,3 +40,16 @@ test("index.html includes main navigation and study controls", () => {
     assert.match(html, new RegExp(text));
   }
 });
+
+test("index.html includes responsive and status styling", () => {
+  for (const token of [
+    "@media",
+    "status-new",
+    "status-learning",
+    "status-review",
+    "status-mastered",
+    "sentence-active"
+  ]) {
+    assert.match(html, new RegExp(token));
+  }
+});
