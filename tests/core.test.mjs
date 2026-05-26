@@ -38,6 +38,16 @@ function createFakeElement(id, className = "") {
     },
     addEventListener(type, handler) {
       this.listeners[type] = handler;
+    },
+    querySelectorAll(selector) {
+      if (selector !== "[data-reading-event]" || !this.innerHTML.includes("data-reading-event")) return [];
+      return ["readSmooth", "readOkay", "readDifficult"].map((eventName) => ({
+        dataset: { readingEvent: eventName },
+        addEventListener(type, handler) {
+          this.listeners = this.listeners || {};
+          this.listeners[type] = handler;
+        }
+      }));
     }
   };
 }
@@ -57,8 +67,12 @@ async function loadAppWithFakeDocument() {
     "dashboard",
     "generate-passage",
     "toggle-translation",
+    "play-passage",
+    "play-sentence",
+    "guided-reading",
     "wpm-control",
     "wpm-value",
+    "reading-feedback",
     "passage-title",
     "passage",
     "translation",
@@ -255,11 +269,36 @@ test("deriveMetrics reads today's activity using localDateKey", async () => {
   assert.equal(metrics.todayReadCount, 3);
 });
 
+test("mapWpmToRate maps reading speed to speech synthesis rate", async () => {
+  const core = await loadCore();
+  assert.equal(core.mapWpmToRate(120), 0.8);
+  assert.equal(core.mapWpmToRate(160), 1.1);
+  assert.equal(core.mapWpmToRate(200), 1.4);
+});
+
+test("textSimilarity scores near readings above unrelated text", async () => {
+  const core = await loadCore();
+  assert.ok(core.textSimilarity("read the passage aloud", "read passage aloud") > 0.7);
+  assert.ok(core.textSimilarity("read the passage aloud", "different words") < 0.5);
+});
+
 test("app init renders dashboard passage and word card through DOMContentLoaded", async () => {
   const { elements } = await loadAppWithFakeDocument();
   assert.match(elements.get("dashboard").innerHTML, /Vocabulary/);
   assert.match(elements.get("passage").innerHTML, /word-token/);
   assert.match(elements.get("word-card").innerHTML, /Select a highlighted word/);
+});
+
+test("reading controls bind playback and guided feedback", async () => {
+  const { app, elements } = await loadAppWithFakeDocument();
+  assert.equal(typeof elements.get("play-passage").listeners.click, "function");
+  assert.equal(typeof elements.get("play-sentence").listeners.click, "function");
+  assert.equal(typeof elements.get("guided-reading").listeners.click, "function");
+
+  app.guidedReading();
+  assert.match(elements.get("reading-feedback").innerHTML, /Smooth/);
+  assert.match(elements.get("reading-feedback").innerHTML, /Okay/);
+  assert.match(elements.get("reading-feedback").innerHTML, /Difficult/);
 });
 
 test("full render preserves the selected word card", async () => {
