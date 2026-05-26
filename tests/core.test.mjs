@@ -225,6 +225,23 @@ test("generatePassage returns sentences and target words from learner state", as
   assert.match(passage.text, /vocabulary|context|practice|review/i);
 });
 
+test("default vocabulary meanings use Chinese characters", async () => {
+  const core = await loadCore();
+  const state = core.createDefaultState();
+
+  for (const word of state.vocabulary) {
+    assert.match(word.zh, /[\u4e00-\u9fff]/, `${word.word} meaning should include Chinese characters`);
+  }
+});
+
+test("generatePassage returns a Chinese translation", async () => {
+  const core = await loadCore();
+  const state = core.createDefaultState();
+  const passage = core.generatePassage(state);
+
+  assert.match(passage.zh, /[\u4e00-\u9fff]/);
+});
+
 test("createVocabularyTest returns deterministic questions across levels", async () => {
   const core = await loadCore();
   const state = core.createDefaultState();
