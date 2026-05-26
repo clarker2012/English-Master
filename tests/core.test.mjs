@@ -533,6 +533,25 @@ test("reading activity counts unique studied target words without repeat accumul
   assert.equal(todayEntry.readCount, 3);
 });
 
+test("vocabulary test renders quick know actions and accepts boolean answers", async () => {
+  const { app, elements } = await loadAppWithFakeDocument();
+
+  app.startTest();
+
+  assert.match(elements.get("test-content").innerHTML, /id="know-word"/);
+  assert.match(elements.get("test-content").innerHTML, /id="unknown-word"/);
+
+  const firstQuestion = app.testSession.questions[0];
+  const secondQuestion = app.testSession.questions[1];
+  app.answerTest(true);
+  app.answerTest(false);
+
+  assert.equal(app.testSession.answers[0].wordId, firstQuestion.word.id);
+  assert.equal(app.testSession.answers[0].known, true);
+  assert.equal(app.testSession.answers[1].wordId, secondQuestion.word.id);
+  assert.equal(app.testSession.answers[1].known, false);
+});
+
 test("speech recognition start errors show fallback text without throwing", async () => {
   class ThrowingRecognition {
     start() {

@@ -925,7 +925,7 @@
       answerTest(selectedOption) {
         const question = this.testSession.questions[this.testSession.index];
         if (!question) return;
-        const known = selectedOption === question.word.zh;
+        const known = typeof selectedOption === "boolean" ? selectedOption : selectedOption === question.word.zh;
         const wordIndex = this.state.vocabulary.findIndex((word) => word.id === question.word.id);
         if (wordIndex >= 0) {
           this.state.vocabulary[wordIndex] = core.applyWordEvent(
@@ -966,10 +966,12 @@
           content.innerHTML = `<p class="muted">Start a quick test to estimate your vocabulary range.</p>`;
           return;
         }
-        content.innerHTML = `<p class="eyebrow">Question ${this.testSession.index + 1} of ${this.testSession.questions.length}</p><h3>${core.escapeHtml(question.word.word)}</h3><div class="button-grid">${question.options.map((option) => `<button class="test-option" type="button" data-option="${core.escapeHtml(option)}">${core.escapeHtml(option)}</button>`).join("")}</div>`;
+        content.innerHTML = `<p class="eyebrow">Question ${this.testSession.index + 1} of ${this.testSession.questions.length}</p><h3>${core.escapeHtml(question.word.word)}</h3><div class="button-grid">${question.options.map((option) => `<button class="test-option" type="button" data-option="${core.escapeHtml(option)}">${core.escapeHtml(option)}</button>`).join("")}</div><div class="button-grid"><button id="know-word" type="button">I know this word</button><button id="unknown-word" type="button">I do not know it</button></div>`;
         document.querySelectorAll(".test-option").forEach((button) => {
           button.addEventListener("click", () => this.answerTest(button.dataset.option));
         });
+        document.getElementById("know-word")?.addEventListener("click", () => this.answerTest(true));
+        document.getElementById("unknown-word")?.addEventListener("click", () => this.answerTest(false));
       }
     };
 
