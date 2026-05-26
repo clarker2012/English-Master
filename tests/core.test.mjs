@@ -80,7 +80,11 @@ async function loadAppWithFakeDocument(options = {}) {
     "word-card",
     "stats-content",
     "start-test",
-    "test-content"
+    "test-content",
+    "export-progress",
+    "import-progress",
+    "reset-progress",
+    "data-status"
   ]) {
     elements.set(id, createFakeElement(id));
   }
@@ -285,6 +289,22 @@ test("textSimilarity scores near readings above unrelated text", async () => {
   const core = await loadCore();
   assert.ok(core.textSimilarity("read the passage aloud", "read passage aloud") > 0.7);
   assert.ok(core.textSimilarity("read the passage aloud", "different words") < 0.5);
+});
+
+test("serializeProgress creates versioned progress JSON with learner state", async () => {
+  const core = await loadCore();
+  const state = core.createDefaultState();
+  const progress = JSON.parse(core.serializeProgress(state));
+
+  assert.equal(progress.version, 1);
+  assert.match(progress.exportedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(progress.state.user, JSON.parse(JSON.stringify(state.user)));
+  assert.deepEqual(progress.state.vocabulary, JSON.parse(JSON.stringify(state.vocabulary)));
+});
+
+test("parseProgress rejects invalid progress payloads", async () => {
+  const core = await loadCore();
+  assert.throws(() => core.parseProgress("{}"), /Invalid progress file/);
 });
 
 test("getSentenceTargetWordIds returns only target words present in that sentence", async () => {

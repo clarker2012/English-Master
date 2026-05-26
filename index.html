@@ -286,6 +286,30 @@
         };
       },
 
+      serializeProgress(state) {
+        return JSON.stringify({
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          state
+        }, null, 2);
+      },
+
+      parseProgress(jsonText) {
+        try {
+          const progress = JSON.parse(jsonText);
+          if (
+            progress?.version !== 1 ||
+            !progress.state?.user ||
+            !Array.isArray(progress.state?.vocabulary)
+          ) {
+            throw new Error("Invalid progress file");
+          }
+          return progress.state;
+        } catch (error) {
+          throw new Error("Invalid progress file");
+        }
+      },
+
       estimateVocabularyRange(answers) {
         const knownLevels = answers.filter((answer) => answer.known).map((answer) => answer.level);
         const averageKnownLevel = knownLevels.length
@@ -489,6 +513,8 @@
     // Task 1 static contract marker: core:
     window.CVT = { core, app: {} };
 
+    const storageKey = "context-vocabulary-trainer-progress";
+
     const app = {
       state: core.createDefaultState(),
       passage: null,
@@ -499,6 +525,7 @@
       testSession: { questions: [], index: 0, answers: [], result: null },
 
       init() {
+        this.state = this.loadState();
         this.passage = core.generatePassage(this.state);
         this.bindEvents();
         this.render();
@@ -512,6 +539,7 @@
           this.passage = core.generatePassage(this.state);
           this.currentSentenceIndex = 0;
           this.guidedActive = false;
+          this.saveState();
           this.render();
         });
         document.getElementById("toggle-translation").addEventListener("click", () => {
@@ -520,6 +548,7 @@
         });
         document.getElementById("wpm-control").addEventListener("input", (event) => {
           this.state.user.targetWpm = Number(event.target.value);
+          this.saveState();
           this.render();
         });
         document.getElementById("play-passage").addEventListener("click", () => this.speak(this.passage.text));
@@ -528,6 +557,72 @@
         });
         document.getElementById("guided-reading").addEventListener("click", () => this.guidedReading());
         document.getElementById("start-test").addEventListener("click", () => this.startTest());
+        document.getElementById("export-progress").addEventListener("click", () => this.exportProgress());
+        document.getElementById("import-progress").addEventListener("change", (event) => this.importProgress(event));
+        document.getElementById("reset-progress").addEventListener("click", () => this.resetProgress());
+      },
+
+      loadState() {
+        try {
+          const saved = localStorage.getItem(storageKey);
+          return saved ? core.parseProgress(saved) : core.createDefaultState();
+        } catch (error) {
+          return core.createDefaultState();
+        }
+      },
+
+      saveState() {
+        localStorage.setItem(storageKey, core.serializeProgress(this.state));
+      },
+
+      writeDataStatus(message) {
+        const status = document.getElementById("data-status");
+        if (status) status.textContent = message;
+      },
+
+      exportProgress() {
+        const blob = new Blob([core.serializeProgress(this.state)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "progress.json";
+        link.click();
+        URL.revokeObjectURL(url);
+        this.writeDataStatus("Progress exported to progress.json.");
+      },
+
+      async importProgress(event) {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+          this.state = core.parseProgress(await file.text());
+          this.passage = core.generatePassage(this.state);
+          this.currentSentenceIndex = 0;
+          this.guidedActive = false;
+          this.selectedWordId = null;
+          this.testSession = { questions: [], index: 0, answers: [], result: null };
+          this.saveState();
+          this.render();
+          this.writeDataStatus("Progress imported.");
+        } catch (error) {
+          this.writeDataStatus("Invalid progress file.");
+        } finally {
+          event.target.value = "";
+        }
+      },
+
+      resetProgress() {
+        if (!window.confirm("Reset all local progress?")) return;
+        localStorage.removeItem(storageKey);
+        this.state = core.createDefaultState();
+        this.passage = core.generatePassage(this.state);
+        this.currentSentenceIndex = 0;
+        this.guidedActive = false;
+        this.showTranslation = false;
+        this.selectedWordId = null;
+        this.testSession = { questions: [], index: 0, answers: [], result: null };
+        this.render();
+        this.writeDataStatus("Local progress reset.");
       },
 
       showView(viewId) {
@@ -592,6 +687,7 @@
         this.renderWordCard(this.state.vocabulary[index]);
         this.renderDashboard();
         this.renderPassage();
+        this.saveState();
       },
 
       getEnglishVoice() {
@@ -665,6 +761,7 @@
             speechFeedback.textContent = `Speech similarity: ${Math.round(similarity * 100)}%`;
           }
           this.state.reading.lastAccuracy = similarity;
+          this.saveState();
         };
         recognition.onerror = () => {
           setSpeechFallback("Speech recognition unavailable. Use manual reading feedback.");
@@ -693,6 +790,7 @@
           Math.max(0, this.passage.sentences.length - 1)
         );
         if (!hasNextSentence) this.guidedActive = false;
+        this.saveState();
         this.render();
         const feedback = document.getElementById("reading-feedback");
         if (feedback) {
@@ -776,6 +874,7 @@
             result: { ...result }
           });
         }
+        this.saveState();
         this.render();
       },
 
