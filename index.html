@@ -337,6 +337,40 @@
         };
       },
 
+      createVocabularyTest(state, size = 10) {
+        const sortedWords = [...state.vocabulary].sort((a, b) => (
+          a.level - b.level || a.frequencyRank - b.frequencyRank || a.word.localeCompare(b.word)
+        ));
+        const levelBuckets = [1, 2, 3, 4, 5]
+          .map((level) => sortedWords.filter((word) => word.level === level))
+          .filter((bucket) => bucket.length > 0);
+        const selected = [];
+        let bucketIndex = 0;
+        while (selected.length < size && selected.length < sortedWords.length) {
+          const bucket = levelBuckets[bucketIndex % levelBuckets.length];
+          const word = bucket[Math.floor(bucketIndex / levelBuckets.length)];
+          if (word && !selected.some((selectedWord) => selectedWord.id === word.id)) {
+            selected.push(word);
+          }
+          bucketIndex += 1;
+          if (bucketIndex > sortedWords.length * levelBuckets.length) break;
+        }
+        for (const word of sortedWords) {
+          if (selected.length >= size) break;
+          if (!selected.some((selectedWord) => selectedWord.id === word.id)) selected.push(word);
+        }
+        return selected.map((word) => {
+          const distractors = sortedWords
+            .filter((candidate) => candidate.id !== word.id && candidate.zh !== word.zh)
+            .slice(0, 3)
+            .map((candidate) => candidate.zh);
+          const options = [...distractors];
+          const insertAt = options.length ? word.id % (options.length + 1) : 0;
+          options.splice(insertAt, 0, word.zh);
+          return { word, options };
+        });
+      },
+
       clampScore(score) {
         return Math.max(0, Math.min(5, Math.round(score * 10) / 10));
       },
@@ -417,6 +451,7 @@
       currentSentenceIndex: 0,
       showTranslation: false,
       selectedWordId: null,
+      testSession: { questions: [], index: 0, answers: [], result: null },
 
       init() {
         this.passage = core.generatePassage(this.state);
@@ -441,6 +476,7 @@
           this.state.user.targetWpm = Number(event.target.value);
           this.render();
         });
+        document.getElementById("start-test").addEventListener("click", () => this.startTest());
       },
 
       showView(viewId) {
@@ -461,6 +497,7 @@
         const selectedWord = this.state.vocabulary.find((word) => word.id === this.selectedWordId);
         this.renderWordCard(selectedWord || null);
         this.renderStats();
+        this.renderTest();
         document.getElementById("wpm-control").value = this.state.user.targetWpm;
         document.getElementById("wpm-value").textContent = this.state.user.targetWpm;
         document.getElementById("toggle-translation").textContent = this.showTranslation ? "Hide Chinese" : "Show Chinese";
@@ -525,6 +562,65 @@
           ["Due review", metrics.dueReviewWords],
           ["Estimate", this.state.user.estimatedVocabulary]
         ].map(([label, value]) => `<div class="panel"><p class="eyebrow">${label}</p><h2>${value}</h2></div>`).join("");
+      },
+
+      startTest() {
+        this.testSession = {
+          questions: core.createVocabularyTest(this.state, 8),
+          index: 0,
+          answers: [],
+          result: null
+        };
+        this.renderTest();
+      },
+
+      answerTest(selectedOption) {
+        const question = this.testSession.questions[this.testSession.index];
+        if (!question) return;
+        const known = selectedOption === question.word.zh;
+        const wordIndex = this.state.vocabulary.findIndex((word) => word.id === question.word.id);
+        if (wordIndex >= 0) {
+          this.state.vocabulary[wordIndex] = core.applyWordEvent(
+            this.state.vocabulary[wordIndex],
+            known ? "testCorrect" : "testWrong"
+          );
+        }
+        this.testSession.answers.push({
+          wordId: question.word.id,
+          level: question.word.level,
+          known,
+          selected: selectedOption
+        });
+        this.testSession.index += 1;
+        if (this.testSession.index >= this.testSession.questions.length) {
+          const result = core.estimateVocabularyRange(this.testSession.answers);
+          this.testSession.result = result;
+          Object.assign(this.state.user, result);
+          this.state.tests.push({
+            date: core.localDateKey(),
+            answers: this.testSession.answers.map((answer) => ({ ...answer })),
+            result: { ...result }
+          });
+        }
+        this.render();
+      },
+
+      renderTest() {
+        const content = document.getElementById("test-content");
+        if (!content) return;
+        if (this.testSession.result) {
+          content.innerHTML = `<p class="eyebrow">Result</p><h3>${core.escapeHtml(this.testSession.result.rangeLabel)}</h3><p class="muted">Estimated vocabulary: ${this.testSession.result.estimatedVocabulary}</p>`;
+          return;
+        }
+        const question = this.testSession.questions[this.testSession.index];
+        if (!question) {
+          content.innerHTML = `<p class="muted">Start a quick test to estimate your vocabulary range.</p>`;
+          return;
+        }
+        content.innerHTML = `<p class="eyebrow">Question ${this.testSession.index + 1} of ${this.testSession.questions.length}</p><h3>${core.escapeHtml(question.word.word)}</h3><div class="button-grid">${question.options.map((option) => `<button class="test-option" type="button" data-option="${core.escapeHtml(option)}">${core.escapeHtml(option)}</button>`).join("")}</div>`;
+        document.querySelectorAll(".test-option").forEach((button) => {
+          button.addEventListener("click", () => this.answerTest(button.dataset.option));
+        });
       }
     };
 

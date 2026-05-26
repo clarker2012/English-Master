@@ -63,7 +63,9 @@ async function loadAppWithFakeDocument() {
     "passage",
     "translation",
     "word-card",
-    "stats-content"
+    "stats-content",
+    "start-test",
+    "test-content"
   ]) {
     elements.set(id, createFakeElement(id));
   }
@@ -80,6 +82,7 @@ async function loadAppWithFakeDocument() {
       if (selector === ".tab") return tabs;
       if (selector === ".view") return views;
       if (selector === ".word-token") return [];
+      if (selector === ".test-option") return [];
       return [];
     }
   };
@@ -164,6 +167,17 @@ test("generatePassage returns sentences and target words from learner state", as
   assert.ok(passage.sentences.length <= 8);
   assert.ok(passage.targetWordIds.length >= 5);
   assert.match(passage.text, /vocabulary|context|practice|review/i);
+});
+
+test("createVocabularyTest returns deterministic questions across levels", async () => {
+  const core = await loadCore();
+  const state = core.createDefaultState();
+  const questions = core.createVocabularyTest(state, 8);
+  const sampledLevels = new Set(questions.map((question) => question.word.level));
+
+  assert.equal(questions.length, 8);
+  assert.ok(sampledLevels.size >= 3);
+  assert.equal(questions[0].options.length, 4);
 });
 
 test("applyWordEvent updates mastery score and status", async () => {
