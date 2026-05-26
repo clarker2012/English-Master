@@ -180,6 +180,37 @@ test("createVocabularyTest returns deterministic questions across levels", async
   assert.equal(questions[0].options.length, 4);
 });
 
+test("createVocabularyTest keeps option labels unique when meanings repeat", async () => {
+  const core = await loadCore();
+  const state = core.createDefaultState();
+  const include = state.vocabulary.find((word) => word.word === "include");
+  const sentence = state.vocabulary.find((word) => word.word === "sentence");
+  include.zh = "shared repeated label";
+  sentence.zh = "shared repeated label";
+
+  const uniqueMeanings = new Set(state.vocabulary.map((word) => word.zh));
+  const questions = core.createVocabularyTest(state, 8);
+
+  assert.ok(uniqueMeanings.size >= 4);
+  for (const question of questions) {
+    assert.equal(question.options.length, 4, `${question.word.word} should have 4 options`);
+    assert.equal(new Set(question.options).size, question.options.length, `${question.word.word} has duplicate options`);
+    assert.ok(question.options.includes(question.word.zh), `${question.word.word} is missing the correct answer`);
+  }
+});
+
+test("createVocabularyTest varies distractors across early questions", async () => {
+  const core = await loadCore();
+  const state = core.createDefaultState();
+  const questions = core.createVocabularyTest(state, 8);
+  const distractorSignatures = questions.slice(0, 6).map((question) => (
+    question.options.filter((option) => option !== question.word.zh).sort().join("|")
+  ));
+
+  assert.ok(state.vocabulary.length >= 8);
+  assert.ok(new Set(distractorSignatures).size >= 4);
+});
+
 test("applyWordEvent updates mastery score and status", async () => {
   const core = await loadCore();
   const word = {

@@ -359,13 +359,25 @@
           if (selected.length >= size) break;
           if (!selected.some((selectedWord) => selectedWord.id === word.id)) selected.push(word);
         }
-        return selected.map((word) => {
+        return selected.map((word, questionIndex) => {
+          const usedLabels = new Set([word.zh]);
           const distractors = sortedWords
-            .filter((candidate) => candidate.id !== word.id && candidate.zh !== word.zh)
-            .slice(0, 3)
-            .map((candidate) => candidate.zh);
+            .filter((candidate) => candidate.id !== word.id)
+            .sort((a, b) => (
+              Math.abs(a.level - word.level) - Math.abs(b.level - word.level) ||
+              Math.abs(a.frequencyRank - word.frequencyRank) - Math.abs(b.frequencyRank - word.frequencyRank) ||
+              a.level - b.level ||
+              a.frequencyRank - b.frequencyRank ||
+              a.word.localeCompare(b.word)
+            ))
+            .reduce((labels, candidate) => {
+              if (labels.length >= 3 || usedLabels.has(candidate.zh)) return labels;
+              usedLabels.add(candidate.zh);
+              labels.push(candidate.zh);
+              return labels;
+            }, []);
           const options = [...distractors];
-          const insertAt = options.length ? word.id % (options.length + 1) : 0;
+          const insertAt = options.length ? (word.id + questionIndex) % (options.length + 1) : 0;
           options.splice(insertAt, 0, word.zh);
           return { word, options };
         });
