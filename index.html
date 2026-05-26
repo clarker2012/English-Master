@@ -341,6 +341,13 @@
         return Math.max(0, Math.min(5, Math.round(score * 10) / 10));
       },
 
+      localDateKey(date = new Date()) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+      },
+
       applyWordEvent(word, eventName) {
         const updated = { ...word };
         if (eventName === "click") {
@@ -375,7 +382,7 @@
         const masteredWords = state.vocabulary.filter((word) => word.status === "mastered").length;
         const learningWords = state.vocabulary.filter((word) => word.status === "learning").length;
         const dueReviewWords = state.vocabulary.filter((word) => word.status === "review").length;
-        const todayKey = new Date().toISOString().slice(0, 10);
+        const todayKey = this.localDateKey();
         const today = state.activity[todayKey] || { studiedWords: 0, readCount: 0 };
         return {
           masteredWords,
@@ -409,6 +416,7 @@
       passage: null,
       currentSentenceIndex: 0,
       showTranslation: false,
+      selectedWordId: null,
 
       init() {
         this.passage = core.generatePassage(this.state);
@@ -450,7 +458,8 @@
       render() {
         this.renderDashboard();
         this.renderPassage();
-        this.renderWordCard(null);
+        const selectedWord = this.state.vocabulary.find((word) => word.id === this.selectedWordId);
+        this.renderWordCard(selectedWord || null);
         this.renderStats();
         document.getElementById("wpm-control").value = this.state.user.targetWpm;
         document.getElementById("wpm-value").textContent = this.state.user.targetWpm;
@@ -491,6 +500,7 @@
         const index = this.state.vocabulary.findIndex((word) => word.id === wordId);
         if (index < 0) return;
         this.state.vocabulary[index] = core.applyWordEvent(this.state.vocabulary[index], "click");
+        this.selectedWordId = wordId;
         this.renderWordCard(this.state.vocabulary[index]);
         this.renderDashboard();
         this.renderPassage();

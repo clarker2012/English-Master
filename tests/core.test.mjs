@@ -23,6 +23,84 @@ async function loadCore() {
   return context.window.CVT.core;
 }
 
+function createFakeElement(id, className = "") {
+  return {
+    id,
+    className,
+    dataset: {},
+    hidden: false,
+    innerHTML: "",
+    textContent: "",
+    value: "",
+    listeners: {},
+    classList: {
+      toggle() {}
+    },
+    addEventListener(type, handler) {
+      this.listeners[type] = handler;
+    }
+  };
+}
+
+async function loadAppWithFakeDocument() {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+  const elements = new Map();
+  const tabs = ["study-view", "test-view", "stats-view", "data-view"].map((viewId) => {
+    const tab = createFakeElement(`tab-${viewId}`, "tab");
+    tab.dataset.view = viewId;
+    return tab;
+  });
+  const views = ["study-view", "test-view", "stats-view", "data-view"].map((id) => createFakeElement(id, "view"));
+  for (const element of views) elements.set(element.id, element);
+  for (const id of [
+    "dashboard",
+    "generate-passage",
+    "toggle-translation",
+    "wpm-control",
+    "wpm-value",
+    "passage-title",
+    "passage",
+    "translation",
+    "word-card",
+    "stats-content"
+  ]) {
+    elements.set(id, createFakeElement(id));
+  }
+
+  const document = {
+    domContentLoadedHandler: null,
+    addEventListener(type, handler) {
+      if (type === "DOMContentLoaded") this.domContentLoadedHandler = handler;
+    },
+    getElementById(id) {
+      return elements.get(id) || null;
+    },
+    querySelectorAll(selector) {
+      if (selector === ".tab") return tabs;
+      if (selector === ".view") return views;
+      if (selector === ".word-token") return [];
+      return [];
+    }
+  };
+  const context = {
+    window: {},
+    document,
+    localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+    speechSynthesis: undefined,
+    Blob,
+    URL: { createObjectURL() { return "blob:test"; }, revokeObjectURL() {} },
+    setTimeout,
+    clearTimeout,
+    console
+  };
+  context.window = context;
+  vm.createContext(context);
+  for (const script of scripts) vm.runInContext(script, context);
+  document.domContentLoadedHandler();
+  return { app: context.window.CVT.app, elements };
+}
+
 test("default state matches MVP learning defaults", async () => {
   const core = await loadCore();
   const state = core.createDefaultState();
@@ -115,6 +193,37 @@ test("deriveMetrics counts mastered learning and due review words", async () => 
   assert.equal(metrics.masteredWords, 1);
   assert.equal(metrics.learningWords, 1);
   assert.equal(metrics.dueReviewWords, 1);
+});
+
+test("localDateKey formats a local calendar day without UTC conversion", async () => {
+  const core = await loadCore();
+  assert.equal(core.localDateKey(new Date(2026, 0, 2)), "2026-01-02");
+});
+
+test("deriveMetrics reads today's activity using localDateKey", async () => {
+  const core = await loadCore();
+  const state = core.createDefaultState();
+  core.localDateKey = () => "2099-12-31";
+  state.activity["2099-12-31"] = { studiedWords: 7, readCount: 3 };
+  const metrics = core.deriveMetrics(state);
+  assert.equal(metrics.todayStudiedWords, 7);
+  assert.equal(metrics.todayReadCount, 3);
+});
+
+test("app init renders dashboard passage and word card through DOMContentLoaded", async () => {
+  const { elements } = await loadAppWithFakeDocument();
+  assert.match(elements.get("dashboard").innerHTML, /Vocabulary/);
+  assert.match(elements.get("passage").innerHTML, /word-token/);
+  assert.match(elements.get("word-card").innerHTML, /Select a highlighted word/);
+});
+
+test("full render preserves the selected word card", async () => {
+  const { app, elements } = await loadAppWithFakeDocument();
+  app.selectWord(1);
+  assert.match(elements.get("word-card").innerHTML, /analyze/);
+  app.showTranslation = true;
+  app.render();
+  assert.match(elements.get("word-card").innerHTML, /analyze/);
 });
 
 test("escapeHtml protects rendered text", async () => {
