@@ -60,3 +60,47 @@ test("mock vocabulary has required future-compatible fields", async () => {
     }
   }
 });
+
+test("estimateVocabularyRange returns an approximate range from test answers", async () => {
+  const core = await loadCore();
+  const result = core.estimateVocabularyRange([
+    { level: 2, known: true },
+    { level: 3, known: true },
+    { level: 4, known: false },
+    { level: 5, known: false }
+  ]);
+  assert.deepEqual({ ...result }, {
+    estimatedVocabulary: 6000,
+    rangeLabel: "5000-6000",
+    currentGroupId: 2,
+    newWordRatio: 0.15
+  });
+});
+
+test("generatePassage returns sentences and target words from learner state", async () => {
+  const core = await loadCore();
+  const state = core.createDefaultState();
+  const passage = core.generatePassage(state);
+  assert.ok(passage.title.length > 0);
+  assert.ok(passage.sentences.length >= 3);
+  assert.ok(passage.sentences.length <= 8);
+  assert.ok(passage.targetWordIds.length >= 5);
+  assert.match(passage.text, /vocabulary|context|practice|review/i);
+});
+
+test("applyWordEvent updates mastery score and status", async () => {
+  const core = await loadCore();
+  const word = {
+    id: 1,
+    knownScore: 4.3,
+    clickCount: 0,
+    correctCount: 0,
+    wrongCount: 0,
+    readCount: 0,
+    status: "review"
+  };
+  const updated = core.applyWordEvent(word, "readSmooth");
+  assert.equal(updated.readCount, 1);
+  assert.equal(updated.knownScore, 4.6);
+  assert.equal(updated.status, "mastered");
+});

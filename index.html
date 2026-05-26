@@ -95,6 +95,91 @@
           tests: [],
           reading: { totalReadCount: 0, lastAccuracy: null }
         };
+      },
+
+      estimateVocabularyRange(answers) {
+        const knownLevels = answers.filter((answer) => answer.known).map((answer) => answer.level);
+        const averageKnownLevel = knownLevels.length
+          ? knownLevels.reduce((sum, level) => sum + level, 0) / knownLevels.length
+          : 1;
+        const hardestKnown = Math.max(1, ...knownLevels);
+        const score = Math.round((averageKnownLevel + hardestKnown) / 2);
+        const bands = {
+          1: { estimatedVocabulary: 4000, rangeLabel: "4000-5000", currentGroupId: 1, newWordRatio: 0.1 },
+          2: { estimatedVocabulary: 5000, rangeLabel: "4000-5000", currentGroupId: 1, newWordRatio: 0.1 },
+          3: { estimatedVocabulary: 6000, rangeLabel: "5000-6000", currentGroupId: 2, newWordRatio: 0.15 },
+          4: { estimatedVocabulary: 8000, rangeLabel: "6000-8000", currentGroupId: 3, newWordRatio: 0.2 },
+          5: { estimatedVocabulary: 10000, rangeLabel: "8000-10000", currentGroupId: 4, newWordRatio: 0.25 }
+        };
+        return bands[Math.min(5, Math.max(1, score))];
+      },
+
+      chooseTargetWords(state) {
+        const dueWords = state.vocabulary.filter((word) => word.status === "review");
+        const newWords = state.vocabulary.filter((word) => (
+          word.status === "new" && word.groupId <= state.user.currentGroupId + 1
+        ));
+        const familiarWords = state.vocabulary.filter((word) => (
+          word.status === "learning" || word.status === "mastered"
+        ));
+        return [...dueWords.slice(0, 3), ...newWords.slice(0, 6), ...familiarWords.slice(0, 3)].slice(0, 10);
+      },
+
+      generatePassage(state) {
+        const targets = this.chooseTargetWords(state);
+        const words = targets.length >= 5 ? targets : state.vocabulary.slice(0, 8);
+        const [first, second, third, fourth, fifth, sixth, seventh, eighth] = words;
+        const sentences = [
+          `A clear ${first.word} helps you notice useful English in context.`,
+          `When you ${second.word} a short passage, the meaning becomes easier to remember.`,
+          `Daily ${third.word} can improve listening, speaking, and reading confidence.`,
+          `Use each ${fourth.word} with an example instead of memorizing it alone.`,
+          `After review, the app can ${fifth.word} your progress and choose the next words.`
+        ];
+        if (sixth && seventh && eighth) {
+          sentences.push(`This simple ${sixth.word} gives visual feedback while you ${seventh.word} and ${eighth.word} new vocabulary.`);
+        }
+        return {
+          title: "Context Practice Session",
+          sentences,
+          text: sentences.join(" "),
+          zh: "Tong guo duan wen, fuxi, he lang du, ba mubiao ci fang jin zhenshi yujing zhong xuexi.",
+          targetWordIds: words.map((word) => word.id)
+        };
+      },
+
+      clampScore(score) {
+        return Math.max(0, Math.min(5, Math.round(score * 10) / 10));
+      },
+
+      applyWordEvent(word, eventName) {
+        const updated = { ...word };
+        if (eventName === "click") {
+          updated.clickCount += 1;
+        }
+        if (eventName === "testCorrect") {
+          updated.correctCount += 1;
+          updated.knownScore = this.clampScore(updated.knownScore + 0.5);
+        }
+        if (eventName === "testWrong") {
+          updated.wrongCount += 1;
+          updated.knownScore = this.clampScore(updated.knownScore - 0.5);
+        }
+        if (eventName === "readSmooth") {
+          updated.readCount += 1;
+          updated.knownScore = this.clampScore(updated.knownScore + 0.3);
+        }
+        if (eventName === "readOkay") {
+          updated.readCount += 1;
+          updated.knownScore = this.clampScore(updated.knownScore + 0.1);
+        }
+        if (eventName === "readDifficult") {
+          updated.readCount += 1;
+        }
+        if (updated.knownScore >= 4.5) updated.status = "mastered";
+        else if (updated.knownScore >= 2) updated.status = "learning";
+        else if (updated.wrongCount > 0 || updated.readCount > 0) updated.status = "review";
+        return updated;
       }
     };
 
