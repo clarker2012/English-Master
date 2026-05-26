@@ -369,11 +369,157 @@
         else if (updated.knownScore >= 2) updated.status = "learning";
         else if (updated.wrongCount > 0 || updated.readCount > 0) updated.status = "review";
         return updated;
+      },
+
+      deriveMetrics(state) {
+        const masteredWords = state.vocabulary.filter((word) => word.status === "mastered").length;
+        const learningWords = state.vocabulary.filter((word) => word.status === "learning").length;
+        const dueReviewWords = state.vocabulary.filter((word) => word.status === "review").length;
+        const todayKey = new Date().toISOString().slice(0, 10);
+        const today = state.activity[todayKey] || { studiedWords: 0, readCount: 0 };
+        return {
+          masteredWords,
+          learningWords,
+          dueReviewWords,
+          todayStudiedWords: today.studiedWords || 0,
+          todayReadCount: today.readCount || 0
+        };
+      },
+
+      escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      },
+
+      findWordByText(state, text) {
+        const normalized = String(text).toLowerCase().replace(/[^a-z]/g, "");
+        return state.vocabulary.find((word) => word.word.toLowerCase() === normalized);
       }
     };
 
     // Task 1 static contract marker: core:
     window.CVT = { core, app: {} };
+
+    const app = {
+      state: core.createDefaultState(),
+      passage: null,
+      currentSentenceIndex: 0,
+      showTranslation: false,
+
+      init() {
+        this.passage = core.generatePassage(this.state);
+        this.bindEvents();
+        this.render();
+      },
+
+      bindEvents() {
+        document.querySelectorAll(".tab").forEach((button) => {
+          button.addEventListener("click", () => this.showView(button.dataset.view));
+        });
+        document.getElementById("generate-passage").addEventListener("click", () => {
+          this.passage = core.generatePassage(this.state);
+          this.currentSentenceIndex = 0;
+          this.render();
+        });
+        document.getElementById("toggle-translation").addEventListener("click", () => {
+          this.showTranslation = !this.showTranslation;
+          this.render();
+        });
+        document.getElementById("wpm-control").addEventListener("input", (event) => {
+          this.state.user.targetWpm = Number(event.target.value);
+          this.render();
+        });
+      },
+
+      showView(viewId) {
+        document.querySelectorAll(".view").forEach((view) => {
+          const active = view.id === viewId;
+          view.hidden = !active;
+          view.classList.toggle("is-active", active);
+        });
+        document.querySelectorAll(".tab").forEach((tab) => {
+          tab.classList.toggle("is-active", tab.dataset.view === viewId);
+        });
+        this.render();
+      },
+
+      render() {
+        this.renderDashboard();
+        this.renderPassage();
+        this.renderWordCard(null);
+        this.renderStats();
+        document.getElementById("wpm-control").value = this.state.user.targetWpm;
+        document.getElementById("wpm-value").textContent = this.state.user.targetWpm;
+        document.getElementById("toggle-translation").textContent = this.showTranslation ? "Hide Chinese" : "Show Chinese";
+      },
+
+      renderDashboard() {
+        const metrics = core.deriveMetrics(this.state);
+        document.getElementById("dashboard").innerHTML = [
+          ["Vocabulary", `${this.state.user.estimatedVocabulary}`],
+          ["Mastered", metrics.masteredWords],
+          ["Today", metrics.todayStudiedWords],
+          ["WPM", this.state.user.targetWpm],
+          ["New words", `${Math.round(this.state.user.newWordRatio * 100)}%`]
+        ].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join("");
+      },
+
+      renderPassage() {
+        document.getElementById("passage-title").textContent = this.passage.title;
+        const targetIds = new Set(this.passage.targetWordIds);
+        document.getElementById("passage").innerHTML = this.passage.sentences.map((sentence, sentenceIndex) => {
+          const parts = sentence.split(/(\s+)/).map((part) => {
+            const word = core.findWordByText(this.state, part);
+            if (!word || !targetIds.has(word.id)) return core.escapeHtml(part);
+            return `<button class="word-token status-${word.status}" data-word-id="${word.id}" type="button">${core.escapeHtml(part)}</button>`;
+          }).join("");
+          const activeClass = sentenceIndex === this.currentSentenceIndex ? "sentence-active" : "";
+          return `<span class="sentence ${activeClass}" data-sentence-index="${sentenceIndex}">${parts}</span>`;
+        }).join(" ");
+        document.getElementById("translation").hidden = !this.showTranslation;
+        document.getElementById("translation").textContent = this.passage.zh;
+        document.querySelectorAll(".word-token").forEach((button) => {
+          button.addEventListener("click", () => this.selectWord(Number(button.dataset.wordId)));
+        });
+      },
+
+      selectWord(wordId) {
+        const index = this.state.vocabulary.findIndex((word) => word.id === wordId);
+        if (index < 0) return;
+        this.state.vocabulary[index] = core.applyWordEvent(this.state.vocabulary[index], "click");
+        this.renderWordCard(this.state.vocabulary[index]);
+        this.renderDashboard();
+        this.renderPassage();
+      },
+
+      renderWordCard(word) {
+        const card = document.getElementById("word-card");
+        if (!word) {
+          card.innerHTML = `<p class="eyebrow">Word details</p><h2>Select a highlighted word</h2><p class="muted">Click a target word in the passage to inspect pronunciation, meaning, and example usage.</p>`;
+          return;
+        }
+        card.innerHTML = `<p class="eyebrow">${core.escapeHtml(word.status)}</p><h2>${core.escapeHtml(word.word)}</h2><p>${core.escapeHtml(word.phonetic)} | ${core.escapeHtml(word.pos)}</p><p><strong>${core.escapeHtml(word.zh)}</strong></p><p>${core.escapeHtml(word.example)}</p><p class="muted">Known score: ${word.knownScore}/5 | Clicks: ${word.clickCount}</p>`;
+      },
+
+      renderStats() {
+        const metrics = core.deriveMetrics(this.state);
+        document.getElementById("stats-content").innerHTML = [
+          ["Study days", this.state.user.streakDays],
+          ["Total reads", this.state.reading.totalReadCount],
+          ["Mastered", metrics.masteredWords],
+          ["Learning", metrics.learningWords],
+          ["Due review", metrics.dueReviewWords],
+          ["Estimate", this.state.user.estimatedVocabulary]
+        ].map(([label, value]) => `<div class="panel"><p class="eyebrow">${label}</p><h2>${value}</h2></div>`).join("");
+      }
+    };
+
+    window.CVT.app = app;
+    document.addEventListener("DOMContentLoaded", () => app.init());
   </script>
 </body>
 </html>

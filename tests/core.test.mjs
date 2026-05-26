@@ -104,3 +104,20 @@ test("applyWordEvent updates mastery score and status", async () => {
   assert.equal(updated.knownScore, 4.6);
   assert.equal(updated.status, "mastered");
 });
+
+test("deriveMetrics counts mastered learning and due review words", async () => {
+  const core = await loadCore();
+  const state = core.createDefaultState();
+  state.vocabulary[0].status = "mastered";
+  state.vocabulary[1].status = "learning";
+  state.vocabulary[2].status = "review";
+  const metrics = core.deriveMetrics(state);
+  assert.equal(metrics.masteredWords, 1);
+  assert.equal(metrics.learningWords, 1);
+  assert.equal(metrics.dueReviewWords, 1);
+});
+
+test("escapeHtml protects rendered text", async () => {
+  const core = await loadCore();
+  assert.equal(core.escapeHtml("<word>"), "&lt;word&gt;");
+});
