@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+const assessmentBank = JSON.parse(await readFile(new URL("../data/assessment-word-bank.json", import.meta.url), "utf8"));
 
 test("index.html contains the required app sections", () => {
   for (const id of [
@@ -52,4 +53,10 @@ test("index.html includes responsive and status styling", () => {
   ]) {
     assert.match(html, new RegExp(token));
   }
+});
+
+test("assessment word bank has 10000 entries with multiple meanings and phrases", () => {
+  assert.equal(assessmentBank.length, 10000);
+  assert.ok(assessmentBank.some((entry) => Array.isArray(entry.meanings) && entry.meanings.length > 1));
+  assert.ok(assessmentBank.some((entry) => Array.isArray(entry.phrases) && entry.phrases.length > 0));
 });

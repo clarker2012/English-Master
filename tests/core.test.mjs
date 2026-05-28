@@ -23,6 +23,19 @@ async function loadCore() {
   return context.window.CVT.core;
 }
 
+function createSyntheticWordBank(size = 10000) {
+  return Array.from({ length: size }, (_, index) => ({
+    id: index + 1,
+    word: `word${index + 1}`,
+    zh: `释义${index + 1}；解释${index + 1}`,
+    meanings: [`释义${index + 1}`, `解释${index + 1}`],
+    phrases: index % 4 === 0 ? [{ term: `phrase ${index + 1}`, meanings: [`短语${index + 1}`, `搭配${index + 1}`] }] : [],
+    phonetic: "",
+    pos: "n.",
+    rank: index + 1
+  }));
+}
+
 function createFakeElement(id, className = "") {
   return {
     id,
@@ -148,6 +161,7 @@ async function loadAppWithFakeDocument(options = {}) {
       return timeoutCallbacks.length;
     }),
     clearTimeout,
+    fetch: options.fetch,
     console
   };
   if (options.Recognition) {
@@ -157,7 +171,7 @@ async function loadAppWithFakeDocument(options = {}) {
   context.window = context;
   vm.createContext(context);
   for (const script of scripts) vm.runInContext(script, context);
-  document.domContentLoadedHandler();
+  await document.domContentLoadedHandler();
   return { app: context.window.CVT.app, elements, createdElements, appendedElements, revokedUrls, timeoutCallbacks };
 }
 
@@ -207,12 +221,12 @@ test("estimateVocabularyRange returns an approximate range from test answers", a
     { level: 4, known: false },
     { level: 5, known: false }
   ]);
-  assert.deepEqual({ ...result }, {
-    estimatedVocabulary: 6000,
-    rangeLabel: "5000-6000",
-    currentGroupId: 2,
-    newWordRatio: 0.15
-  });
+  assert.equal(result.estimatedVocabulary, 5000);
+  assert.equal(result.correctCount, 2);
+  assert.equal(result.totalQuestions, 4);
+  assert.equal(result.populationSize, 10000);
+  assert.ok(result.confidenceLow < result.estimatedVocabulary);
+  assert.ok(result.confidenceHigh > result.estimatedVocabulary);
 });
 
 test("generatePassage returns sentences and target words from learner state", async () => {
@@ -248,12 +262,16 @@ test("generatePassage returns a Chinese translation", async () => {
 test("createVocabularyTest returns deterministic questions across levels", async () => {
   const core = await loadCore();
   const state = core.createDefaultState();
-  const questions = core.createVocabularyTest(state, 500);
+  const wordBank = createSyntheticWordBank();
+  const questions = core.createVocabularyTest(state, 500, wordBank, () => 0.42);
   const sampledLevels = new Set(questions.map((question) => question.word.level));
 
   assert.equal(questions.length, 500);
   assert.ok(sampledLevels.size >= 3);
   assert.equal(questions[0].options.length, 4);
+  assert.equal(new Set(questions.map((question) => question.word.id)).size, 500);
+  assert.ok(questions.some((question) => question.word.word.includes(" ")), "some questions should test phrases");
+  assert.ok(questions.every((question) => question.word.zh.includes("；")), "answers should expose multiple meanings when available");
 });
 
 test("createVocabularyTest keeps option labels unique when meanings repeat", async () => {
@@ -584,11 +602,19 @@ test("reading activity counts unique studied target words without repeat accumul
 });
 
 test("vocabulary test renders 500 objective choice questions without self-assessment", async () => {
-  const { app, elements } = await loadAppWithFakeDocument();
+  const { app, elements } = await loadAppWithFakeDocument({
+    fetch: async () => ({
+      ok: true,
+      async json() {
+        return createSyntheticWordBank();
+      }
+    })
+  });
 
   app.startTest();
 
   assert.equal(app.testSession.questions.length, 500);
+  assert.equal(app.testSession.populationSize, 10000);
   assert.doesNotMatch(elements.get("test-content").innerHTML, /id="know-word"|id="unknown-word"/);
 
   const firstQuestion = app.testSession.questions[0];
