@@ -241,6 +241,8 @@ test("generatePassage returns a Chinese translation", async () => {
   const passage = core.generatePassage(state);
 
   assert.match(passage.zh, /[\u4e00-\u9fff]/);
+  assert.ok(passage.zh.length > 100);
+  assert.equal((passage.zh.match(/。/g) || []).length, passage.sentences.length);
 });
 
 test("createVocabularyTest returns deterministic questions across levels", async () => {

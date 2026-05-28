@@ -414,14 +414,22 @@
           `Use each ${fourth.word} with an example instead of memorizing it alone.`,
           `After review, the app can ${fifth.word} your progress and choose the next words.`
         ];
+        const zhSentences = [
+          `清晰的“${first.zh}”能帮助你在语境中注意到有用的英语。`,
+          `当你“${second.zh}”一篇短文时，词义会变得更容易记住。`,
+          `每天进行“${third.zh}”练习，可以提升听力、口语和阅读信心。`,
+          `把每个“${fourth.zh}”放进例句里使用，而不是单独死记硬背。`,
+          `复习之后，应用可以“${fifth.zh}”你的进度，并选择下一批单词。`
+        ];
         if (sixth && seventh && eighth) {
           sentences.push(`This simple ${sixth.word} gives visual feedback while you ${seventh.word} and ${eighth.word} new vocabulary.`);
+          zhSentences.push(`这个简单的“${sixth.zh}”会在你“${seventh.zh}”并“${eighth.zh}”新词汇时提供可视化反馈。`);
         }
         return {
           title: "Context Practice Session",
           sentences,
           text: sentences.join(" "),
-          zh: "通过短文、复习和朗读，把目标词放进真实语境中学习。",
+          zh: zhSentences.join(" "),
           targetWordIds: words.map((word) => word.id)
         };
       },
