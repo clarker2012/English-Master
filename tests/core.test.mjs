@@ -80,6 +80,7 @@ async function loadAppWithFakeDocument(options = {}) {
     "play-passage",
     "play-sentence",
     "guided-reading",
+    "start-speaking",
     "wpm-control",
     "wpm-value",
     "reading-feedback",
@@ -490,11 +491,46 @@ test("reading controls bind playback and guided feedback", async () => {
   assert.equal(typeof elements.get("play-passage").listeners.click, "function");
   assert.equal(typeof elements.get("play-sentence").listeners.click, "function");
   assert.equal(typeof elements.get("guided-reading").listeners.click, "function");
+  assert.equal(typeof elements.get("start-speaking").listeners.click, "function");
 
   app.guidedReading();
   assert.match(elements.get("reading-feedback").innerHTML, /Smooth/);
   assert.match(elements.get("reading-feedback").innerHTML, /Okay/);
   assert.match(elements.get("reading-feedback").innerHTML, /Difficult/);
+});
+
+test("start speaking listens to learner reading and records accuracy feedback", async () => {
+  let recognition;
+  class SuccessfulRecognition {
+    constructor() {
+      recognition = this;
+    }
+    start() {
+      this.onresult({
+        results: [[{ transcript: "analyze this sentence" }]]
+      });
+    }
+  }
+  const { app, elements } = await loadAppWithFakeDocument({ Recognition: SuccessfulRecognition });
+  app.passage = {
+    title: "Speaking practice",
+    sentences: ["Analyze this sentence.", "Practice another line."],
+    text: "Analyze this sentence. Practice another line.",
+    zh: "朗读练习。",
+    targetWordIds: [1, 18]
+  };
+  app.currentSentenceIndex = 0;
+  const beforeFirst = app.state.vocabulary.find((word) => word.id === 1).readCount;
+  const beforeSecond = app.state.vocabulary.find((word) => word.id === 18).readCount;
+
+  elements.get("start-speaking").listeners.click();
+
+  assert.ok(recognition, "speech recognition should start");
+  assert.equal(app.state.reading.lastAccuracy, 1);
+  assert.equal(app.state.vocabulary.find((word) => word.id === 1).readCount, beforeFirst + 1);
+  assert.equal(app.state.vocabulary.find((word) => word.id === 18).readCount, beforeSecond);
+  assert.match(elements.get("reading-feedback").innerHTML, /Recognized/);
+  assert.match(elements.get("reading-feedback").innerHTML, /100%/);
 });
 
 test("guided reading resumes active sentence and feedback advances with scoped word updates", async () => {

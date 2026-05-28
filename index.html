@@ -169,6 +169,7 @@
                 <button id="play-passage" type="button">Play passage</button>
                 <button id="play-sentence" type="button">Play sentence</button>
                 <button id="guided-reading" type="button">Guided reading</button>
+                <button id="start-speaking" type="button">Start speaking</button>
               </div>
               <div id="reading-feedback" class="feedback"></div>
             </section>
@@ -620,6 +621,7 @@
           this.speak(this.passage.sentences[this.currentSentenceIndex] || this.passage.sentences[0] || "");
         });
         document.getElementById("guided-reading").addEventListener("click", () => this.guidedReading());
+        document.getElementById("start-speaking").addEventListener("click", () => this.startSpeaking());
         document.getElementById("start-test").addEventListener("click", () => this.startTest());
         document.getElementById("export-progress").addEventListener("click", () => this.exportProgress());
         document.getElementById("import-progress").addEventListener("change", (event) => this.importProgress(event));
@@ -821,7 +823,7 @@
 
       trySpeechRecognition(sentence) {
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!Recognition) return;
+        if (!Recognition) return null;
         const speechFeedback = document.getElementById("speech-feedback");
         const setSpeechFallback = (message) => {
           if (speechFeedback) speechFeedback.textContent = message;
@@ -849,6 +851,62 @@
           recognition.start();
         } catch (error) {
           setSpeechFallback("Could not start speech recognition. Use manual reading feedback.");
+        }
+        return recognition;
+      },
+
+      startSpeaking() {
+        const sentence = this.passage.sentences[this.currentSentenceIndex] || this.passage.sentences[0] || "";
+        const feedback = document.getElementById("reading-feedback");
+        if (!feedback) return;
+        feedback.innerHTML = `<p class="muted">Listening to your reading...</p><p class="muted" id="speech-feedback"></p>`;
+        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const speechFeedback = document.getElementById("speech-feedback");
+        if (!Recognition) {
+          if (speechFeedback) speechFeedback.textContent = "Speech recognition unavailable. Use manual reading feedback.";
+          this.promptReadFeedback(sentence);
+          return;
+        }
+        const recognition = new Recognition();
+        let receivedResult = false;
+        recognition.lang = "en-US";
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+        recognition.onresult = (event) => {
+          receivedResult = true;
+          const transcript = event.results?.[0]?.[0]?.transcript || "";
+          const similarity = core.textSimilarity(sentence, transcript);
+          this.state.reading.lastAccuracy = similarity;
+          const eventName = similarity >= 0.85 ? "readSmooth" : similarity >= 0.6 ? "readOkay" : "readDifficult";
+          const sentenceTargetIds = core.getSentenceTargetWordIds(this.state, this.passage, this.currentSentenceIndex);
+          const targetIds = new Set(sentenceTargetIds);
+          this.state.vocabulary = this.state.vocabulary.map((word) => (
+            targetIds.has(word.id) ? core.applyWordEvent(word, eventName) : word
+          ));
+          this.recordReadingActivity(sentenceTargetIds);
+          this.saveState();
+          this.render();
+          const updatedFeedback = document.getElementById("reading-feedback");
+          if (updatedFeedback) {
+            updatedFeedback.innerHTML = `<p class="muted">Recognized: ${core.escapeHtml(transcript || "(no text)")}</p><p class="muted">Reading accuracy: ${Math.round(similarity * 100)}%</p><p class="muted">Fluency estimate saved for this sentence.</p>`;
+          }
+        };
+        recognition.onerror = () => {
+          if (speechFeedback) speechFeedback.textContent = "Speech recognition unavailable. Use manual reading feedback.";
+          this.promptReadFeedback(sentence);
+        };
+        recognition.onend = () => {
+          if (!receivedResult) {
+            const fallback = document.getElementById("speech-feedback");
+            if (fallback) fallback.textContent = "No speech detected. Use manual reading feedback.";
+            this.promptReadFeedback(sentence);
+          }
+        };
+        try {
+          recognition.start();
+        } catch (error) {
+          if (speechFeedback) speechFeedback.textContent = "Could not start speech recognition. Use manual reading feedback.";
+          this.promptReadFeedback(sentence);
         }
       },
 
