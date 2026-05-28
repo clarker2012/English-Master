@@ -182,7 +182,7 @@
           <div class="panel-header">
             <div>
               <p class="eyebrow">Vocabulary estimate</p>
-              <h2>Quick range test</h2>
+              <h2>500-question range test</h2>
             </div>
             <button id="start-test" type="button">Start test</button>
           </div>
@@ -434,7 +434,7 @@
         };
       },
 
-      createVocabularyTest(state, size = 10) {
+      createVocabularyTest(state, size = 500) {
         const sortedWords = [...state.vocabulary].sort((a, b) => (
           a.level - b.level || a.frequencyRank - b.frequencyRank || a.word.localeCompare(b.word)
         ));
@@ -443,18 +443,11 @@
           .filter((bucket) => bucket.length > 0);
         const selected = [];
         let bucketIndex = 0;
-        while (selected.length < size && selected.length < sortedWords.length) {
+        while (selected.length < size && sortedWords.length) {
           const bucket = levelBuckets[bucketIndex % levelBuckets.length];
-          const word = bucket[Math.floor(bucketIndex / levelBuckets.length)];
-          if (word && !selected.some((selectedWord) => selectedWord.id === word.id)) {
-            selected.push(word);
-          }
+          const word = bucket[Math.floor(bucketIndex / levelBuckets.length) % bucket.length];
+          if (word) selected.push(word);
           bucketIndex += 1;
-          if (bucketIndex > sortedWords.length * levelBuckets.length) break;
-        }
-        for (const word of sortedWords) {
-          if (selected.length >= size) break;
-          if (!selected.some((selectedWord) => selectedWord.id === word.id)) selected.push(word);
         }
         return selected.map((word, questionIndex) => {
           const usedLabels = new Set([word.zh]);
@@ -624,7 +617,7 @@
           this.saveState();
           this.render();
         });
-        document.getElementById("play-passage").addEventListener("click", () => this.speak(this.passage.text));
+        document.getElementById("play-passage").addEventListener("click", () => this.speakPassage());
         document.getElementById("play-sentence").addEventListener("click", () => {
           this.speak(this.passage.sentences[this.currentSentenceIndex] || this.passage.sentences[0] || "");
         });
@@ -780,8 +773,17 @@
         const synth = window.speechSynthesis;
         if (!synth || typeof synth.getVoices !== "function") return null;
         const voices = synth.getVoices();
-        return voices.find((voice) => voice.lang === "en-US")
-          || voices.find((voice) => String(voice.lang).toLowerCase().startsWith("en"))
+        const englishVoices = voices.filter((voice) => String(voice.lang).toLowerCase().startsWith("en"));
+        const scoreVoice = (voice) => {
+          const name = `${voice.name} ${voice.voiceURI}`.toLowerCase();
+          let score = voice.lang === "en-US" ? 20 : 0;
+          if (/natural|neural|online|premium/.test(name)) score += 40;
+          if (/microsoft|google|apple/.test(name)) score += 20;
+          if (/jenny|aria|guy|samantha|daniel|ava|emma/.test(name)) score += 10;
+          if (voice.localService === false) score += 5;
+          return score;
+        };
+        return englishVoices.sort((a, b) => scoreVoice(b) - scoreVoice(a))[0]
           || null;
       },
 
@@ -789,17 +791,30 @@
         const feedback = document.getElementById("reading-feedback");
         const synth = window.speechSynthesis;
         if (!synth || typeof window.SpeechSynthesisUtterance !== "function") {
-          if (feedback) feedback.innerHTML = `<p class="muted">TTS unavailable in this browser. Use manual reading feedback.</p>`;
+          if (feedback) feedback.innerHTML = `<p class="muted">TTS unavailable in this browser.</p>`;
           if (onEnd) onEnd();
           return;
         }
+        synth.cancel();
         const utterance = new window.SpeechSynthesisUtterance(text);
         utterance.lang = "en-US";
-        utterance.rate = core.mapWpmToRate(this.state.user.targetWpm);
+        utterance.rate = Math.min(1.05, core.mapWpmToRate(this.state.user.targetWpm));
+        utterance.pitch = 1.05;
+        utterance.volume = 1;
         const voice = this.getEnglishVoice();
         if (voice) utterance.voice = voice;
         if (onEnd) utterance.onend = onEnd;
         synth.speak(utterance);
+      },
+
+      speakPassage() {
+        const sentences = [...this.passage.sentences];
+        const speakNext = () => {
+          const sentence = sentences.shift();
+          if (!sentence) return;
+          this.speak(sentence, () => window.setTimeout(speakNext, 350));
+        };
+        speakNext();
       },
 
       guidedReading() {
@@ -820,12 +835,9 @@
         const feedback = document.getElementById("reading-feedback");
         if (!feedback) return;
         const unavailable = feedback.innerHTML.includes("TTS unavailable")
-          ? `<p class="muted">TTS unavailable in this browser. Use manual reading feedback.</p>`
+          ? `<p class="muted">TTS unavailable in this browser.</p>`
           : "";
-        feedback.innerHTML = `${unavailable}<p class="muted">How did this sentence feel?</p><div class="button-grid"><button type="button" data-reading-event="readSmooth">Smooth</button><button type="button" data-reading-event="readOkay">Okay</button><button type="button" data-reading-event="readDifficult">Difficult</button></div><p class="muted" id="speech-feedback"></p>`;
-        feedback.querySelectorAll("[data-reading-event]").forEach((button) => {
-          button.addEventListener("click", () => this.applyReadingFeedback(button.dataset.readingEvent));
-        });
+        feedback.innerHTML = `${unavailable}<p class="muted">AI pronunciation assessment is listening...</p><p class="muted" id="speech-feedback"></p>`;
         this.trySpeechRecognition(sentence);
       },
 
@@ -843,22 +855,18 @@
           receivedResult = true;
           const transcript = event.results?.[0]?.[0]?.transcript || "";
           const similarity = core.textSimilarity(sentence, transcript);
-          if (speechFeedback) {
-            speechFeedback.textContent = `Speech similarity: ${Math.round(similarity * 100)}%`;
-          }
-          this.state.reading.lastAccuracy = similarity;
-          this.saveState();
+          this.applyAutomaticReadingAssessment(sentence, transcript, similarity);
         };
         recognition.onerror = () => {
-          setSpeechFallback("Speech recognition unavailable. Use manual reading feedback.");
+          setSpeechFallback("Speech recognition unavailable. Please try Start speaking again.");
         };
         recognition.onend = () => {
-          if (!receivedResult) setSpeechFallback("No speech detected. Use manual reading feedback.");
+          if (!receivedResult) setSpeechFallback("No speech detected. Please read the sentence again.");
         };
         try {
           recognition.start();
         } catch (error) {
-          setSpeechFallback("Could not start speech recognition. Use manual reading feedback.");
+          setSpeechFallback("Could not start speech recognition. Please try again.");
         }
         return recognition;
       },
@@ -871,8 +879,7 @@
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const speechFeedback = document.getElementById("speech-feedback");
         if (!Recognition) {
-          if (speechFeedback) speechFeedback.textContent = "Speech recognition unavailable. Use manual reading feedback.";
-          this.promptReadFeedback(sentence);
+          if (speechFeedback) speechFeedback.textContent = "Speech recognition unavailable. Please try again in a browser with speech recognition.";
           return;
         }
         const recognition = new Recognition();
@@ -884,47 +891,33 @@
           receivedResult = true;
           const transcript = event.results?.[0]?.[0]?.transcript || "";
           const similarity = core.textSimilarity(sentence, transcript);
-          this.state.reading.lastAccuracy = similarity;
-          const eventName = similarity >= 0.85 ? "readSmooth" : similarity >= 0.6 ? "readOkay" : "readDifficult";
-          const sentenceTargetIds = core.getSentenceTargetWordIds(this.state, this.passage, this.currentSentenceIndex);
-          const targetIds = new Set(sentenceTargetIds);
-          this.state.vocabulary = this.state.vocabulary.map((word) => (
-            targetIds.has(word.id) ? core.applyWordEvent(word, eventName) : word
-          ));
-          this.recordReadingActivity(sentenceTargetIds);
-          this.saveState();
-          this.render();
-          const updatedFeedback = document.getElementById("reading-feedback");
-          if (updatedFeedback) {
-            updatedFeedback.innerHTML = `<p class="muted">Recognized: ${core.escapeHtml(transcript || "(no text)")}</p><p class="muted">Reading accuracy: ${Math.round(similarity * 100)}%</p><p class="muted">Fluency estimate saved for this sentence.</p>`;
-          }
+          this.applyAutomaticReadingAssessment(sentence, transcript, similarity);
         };
         recognition.onerror = () => {
-          if (speechFeedback) speechFeedback.textContent = "Speech recognition unavailable. Use manual reading feedback.";
-          this.promptReadFeedback(sentence);
+          if (speechFeedback) speechFeedback.textContent = "Speech recognition unavailable. Please try again.";
         };
         recognition.onend = () => {
           if (!receivedResult) {
             const fallback = document.getElementById("speech-feedback");
-            if (fallback) fallback.textContent = "No speech detected. Use manual reading feedback.";
-            this.promptReadFeedback(sentence);
+            if (fallback) fallback.textContent = "No speech detected. Please read the sentence again.";
           }
         };
         try {
           recognition.start();
         } catch (error) {
-          if (speechFeedback) speechFeedback.textContent = "Could not start speech recognition. Use manual reading feedback.";
-          this.promptReadFeedback(sentence);
+          if (speechFeedback) speechFeedback.textContent = "Could not start speech recognition. Please try again.";
         }
       },
 
-      applyReadingFeedback(eventName) {
+      applyAutomaticReadingAssessment(sentence, transcript, similarity) {
+        const eventName = similarity >= 0.85 ? "readSmooth" : similarity >= 0.6 ? "readOkay" : "readDifficult";
         if (!["readSmooth", "readOkay", "readDifficult"].includes(eventName)) return;
         const sentenceTargetIds = core.getSentenceTargetWordIds(this.state, this.passage, this.currentSentenceIndex);
         const targetIds = new Set(sentenceTargetIds);
         this.state.vocabulary = this.state.vocabulary.map((word) => (
           targetIds.has(word.id) ? core.applyWordEvent(word, eventName) : word
         ));
+        this.state.reading.lastAccuracy = similarity;
         this.recordReadingActivity(sentenceTargetIds);
         const hasNextSentence = this.currentSentenceIndex < this.passage.sentences.length - 1;
         this.currentSentenceIndex = Math.min(
@@ -936,9 +929,10 @@
         this.render();
         const feedback = document.getElementById("reading-feedback");
         if (feedback) {
+          const label = eventName === "readSmooth" ? "strong" : eventName === "readOkay" ? "developing" : "needs review";
           feedback.innerHTML = hasNextSentence
-            ? `<p class="muted">Reading feedback recorded.</p><button id="continue-reading" type="button">Continue</button>`
-            : `<p class="muted">Reading feedback recorded. Session complete.</p>`;
+            ? `<p class="muted">AI assessment: ${label} pronunciation, ${Math.round(similarity * 100)}% match.</p><p class="muted">Recognized: ${core.escapeHtml(transcript || "(no text)")}</p><button id="continue-reading" type="button">Continue</button>`
+            : `<p class="muted">AI assessment complete: ${Math.round(similarity * 100)}% match. Session complete.</p><p class="muted">Recognized: ${core.escapeHtml(transcript || "(no text)")}</p>`;
           const continueButton = feedback.querySelector ? feedback.querySelector("#continue-reading") : null;
           if (continueButton) continueButton.addEventListener("click", () => this.guidedReading());
         }
@@ -980,7 +974,7 @@
 
       startTest() {
         this.testSession = {
-          questions: core.createVocabularyTest(this.state, 8),
+          questions: core.createVocabularyTest(this.state, 500),
           index: 0,
           answers: [],
           result: null
@@ -1029,15 +1023,13 @@
         }
         const question = this.testSession.questions[this.testSession.index];
         if (!question) {
-          content.innerHTML = `<p class="muted">Start a quick test to estimate your vocabulary range.</p>`;
+          content.innerHTML = `<p class="muted">Start a 500-question objective test to estimate your vocabulary range.</p>`;
           return;
         }
-        content.innerHTML = `<p class="eyebrow">Question ${this.testSession.index + 1} of ${this.testSession.questions.length}</p><h3>${core.escapeHtml(question.word.word)}</h3><div class="button-grid">${question.options.map((option) => `<button class="test-option" type="button" data-option="${core.escapeHtml(option)}">${core.escapeHtml(option)}</button>`).join("")}</div><div class="button-grid"><button id="know-word" type="button">I know this word</button><button id="unknown-word" type="button">I do not know it</button></div>`;
+        content.innerHTML = `<p class="eyebrow">Objective vocabulary assessment</p><p class="muted">Question ${this.testSession.index + 1} of ${this.testSession.questions.length}</p><h3>${core.escapeHtml(question.word.word)}</h3><div class="button-grid">${question.options.map((option) => `<button class="test-option" type="button" data-option="${core.escapeHtml(option)}">${core.escapeHtml(option)}</button>`).join("")}</div>`;
         document.querySelectorAll(".test-option").forEach((button) => {
           button.addEventListener("click", () => this.answerTest(button.dataset.option));
         });
-        document.getElementById("know-word")?.addEventListener("click", () => this.answerTest(true));
-        document.getElementById("unknown-word")?.addEventListener("click", () => this.answerTest(false));
       }
     };
 

@@ -248,10 +248,10 @@ test("generatePassage returns a Chinese translation", async () => {
 test("createVocabularyTest returns deterministic questions across levels", async () => {
   const core = await loadCore();
   const state = core.createDefaultState();
-  const questions = core.createVocabularyTest(state, 8);
+  const questions = core.createVocabularyTest(state, 500);
   const sampledLevels = new Set(questions.map((question) => question.word.level));
 
-  assert.equal(questions.length, 8);
+  assert.equal(questions.length, 500);
   assert.ok(sampledLevels.size >= 3);
   assert.equal(questions[0].options.length, 4);
 });
@@ -496,9 +496,8 @@ test("reading controls bind playback and guided feedback", async () => {
   assert.equal(typeof elements.get("start-speaking").listeners.click, "function");
 
   app.guidedReading();
-  assert.match(elements.get("reading-feedback").innerHTML, /Smooth/);
-  assert.match(elements.get("reading-feedback").innerHTML, /Okay/);
-  assert.match(elements.get("reading-feedback").innerHTML, /Difficult/);
+  assert.match(elements.get("reading-feedback").innerHTML, /AI pronunciation assessment/);
+  assert.doesNotMatch(elements.get("reading-feedback").innerHTML, /Smooth|Okay|Difficult/);
 });
 
 test("start speaking listens to learner reading and records accuracy feedback", async () => {
@@ -554,11 +553,7 @@ test("guided reading resumes active sentence and feedback advances with scoped w
   assert.equal(app.currentSentenceIndex, 1);
 
   app.currentSentenceIndex = 0;
-  app.promptReadFeedback(app.passage.sentences[0]);
-  const smoothButton = elements.get("reading-feedback").readingButtons.find((button) => (
-    button.dataset.readingEvent === "readSmooth"
-  ));
-  smoothButton.listeners.click();
+  app.applyAutomaticReadingAssessment(app.passage.sentences[0], "analyze this sentence", 1);
 
   assert.equal(app.state.vocabulary.find((word) => word.id === 1).readCount, 1);
   assert.equal(app.state.vocabulary.find((word) => word.id === 3).readCount, 0);
@@ -588,18 +583,18 @@ test("reading activity counts unique studied target words without repeat accumul
   assert.equal(todayEntry.readCount, 3);
 });
 
-test("vocabulary test renders quick know actions and accepts boolean answers", async () => {
+test("vocabulary test renders 500 objective choice questions without self-assessment", async () => {
   const { app, elements } = await loadAppWithFakeDocument();
 
   app.startTest();
 
-  assert.match(elements.get("test-content").innerHTML, /id="know-word"/);
-  assert.match(elements.get("test-content").innerHTML, /id="unknown-word"/);
+  assert.equal(app.testSession.questions.length, 500);
+  assert.doesNotMatch(elements.get("test-content").innerHTML, /id="know-word"|id="unknown-word"/);
 
   const firstQuestion = app.testSession.questions[0];
   const secondQuestion = app.testSession.questions[1];
-  app.answerTest(true);
-  app.answerTest(false);
+  app.answerTest(firstQuestion.word.zh);
+  app.answerTest("not the answer");
 
   assert.equal(app.testSession.answers[0].wordId, firstQuestion.word.id);
   assert.equal(app.testSession.answers[0].known, true);
