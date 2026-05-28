@@ -36,6 +36,24 @@ function createSyntheticWordBank(size = 10000) {
   }));
 }
 
+function createMemoryStorage(initial = {}) {
+  const store = { ...initial };
+  return {
+    getItem(key) {
+      return Object.hasOwn(store, key) ? store[key] : null;
+    },
+    setItem(key, value) {
+      store[key] = String(value);
+    },
+    removeItem(key) {
+      delete store[key];
+    },
+    dump() {
+      return { ...store };
+    }
+  };
+}
+
 function createFakeElement(id, className = "") {
   return {
     id,
@@ -626,6 +644,57 @@ test("vocabulary test renders 500 objective choice questions without self-assess
   assert.equal(app.testSession.answers[0].known, true);
   assert.equal(app.testSession.answers[1].wordId, secondQuestion.word.id);
   assert.equal(app.testSession.answers[1].known, false);
+});
+
+test("vocabulary test can return to previous question and overwrite the answer", async () => {
+  const { app, elements } = await loadAppWithFakeDocument({
+    fetch: async () => ({
+      ok: true,
+      async json() {
+        return createSyntheticWordBank();
+      }
+    })
+  });
+
+  app.startTest();
+  const firstQuestion = app.testSession.questions[0];
+  const secondQuestion = app.testSession.questions[1];
+  app.answerTest(firstQuestion.word.zh);
+  const wrongOption = secondQuestion.options.find((option) => option !== secondQuestion.word.zh);
+  app.answerTest(wrongOption);
+
+  app.previousTestQuestion();
+  assert.equal(app.testSession.index, 1);
+  assert.match(elements.get("test-content").innerHTML, /Previous/);
+  assert.match(elements.get("test-content").innerHTML, new RegExp(`Selected: ${wrongOption}`));
+
+  app.answerTest(secondQuestion.word.zh);
+  assert.equal(app.testSession.answers.length, 2);
+  assert.equal(app.testSession.answers[1].wordId, secondQuestion.word.id);
+  assert.equal(app.testSession.answers[1].known, true);
+});
+
+test("vocabulary test can be saved and restored after returning", async () => {
+  const storage = createMemoryStorage();
+  const fetch = async () => ({
+    ok: true,
+    async json() {
+      return createSyntheticWordBank();
+    }
+  });
+  const firstLoad = await loadAppWithFakeDocument({ fetch, localStorage: storage });
+  firstLoad.app.startTest();
+  firstLoad.app.answerTest(firstLoad.app.testSession.questions[0].word.zh);
+  firstLoad.app.saveTestSession();
+
+  assert.ok(storage.getItem("context-vocabulary-trainer-test-session"));
+  assert.match(firstLoad.elements.get("test-content").innerHTML, /Saved/);
+
+  const secondLoad = await loadAppWithFakeDocument({ fetch, localStorage: storage });
+  assert.equal(secondLoad.app.testSession.index, 1);
+  assert.equal(secondLoad.app.testSession.questions.length, 500);
+  assert.equal(secondLoad.app.testSession.answers[0].known, true);
+  assert.match(secondLoad.elements.get("test-content").innerHTML, /Question 2 of 500/);
 });
 
 test("speech recognition start errors show fallback text without throwing", async () => {

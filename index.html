@@ -606,6 +606,7 @@
     window.CVT = { core, app: {} };
 
     const storageKey = "context-vocabulary-trainer-progress";
+    const testStorageKey = "context-vocabulary-trainer-test-session";
 
     const app = {
       state: core.createDefaultState(),
@@ -620,6 +621,7 @@
       async init() {
         this.state = this.loadState();
         this.assessmentWordBank = await this.loadAssessmentWordBank();
+        this.testSession = this.loadSavedTestSession() || this.testSession;
         this.passage = core.generatePassage(this.state);
         this.bindEvents();
         this.render();
@@ -690,6 +692,65 @@
         }
       },
 
+      loadSavedTestSession() {
+        try {
+          const saved = localStorage.getItem(testStorageKey);
+          if (!saved) return null;
+          const payload = JSON.parse(saved);
+          const session = payload?.session;
+          if (
+            payload?.version !== 1 ||
+            !Array.isArray(session?.questions) ||
+            !Array.isArray(session?.answers) ||
+            !Number.isFinite(session?.index)
+          ) {
+            throw new Error("Invalid saved test");
+          }
+          return {
+            questions: session.questions,
+            answers: session.answers,
+            index: Math.max(0, Math.min(session.index, session.questions.length)),
+            result: session.result || null,
+            populationSize: Number.isFinite(session.populationSize) ? session.populationSize : 10000,
+            savedAt: payload.savedAt || "",
+            saveError: ""
+          };
+        } catch (error) {
+          localStorage.removeItem(testStorageKey);
+          return null;
+        }
+      },
+
+      saveTestSession() {
+        if (!this.testSession.questions.length || this.testSession.result) return false;
+        try {
+          const savedAt = new Date().toISOString();
+          localStorage.setItem(testStorageKey, JSON.stringify({
+            version: 1,
+            savedAt,
+            session: {
+              questions: this.testSession.questions,
+              index: this.testSession.index,
+              answers: this.testSession.answers,
+              result: this.testSession.result,
+              populationSize: this.testSession.populationSize
+            }
+          }));
+          this.testSession.savedAt = savedAt;
+          this.testSession.saveError = "";
+          this.renderTest();
+          return true;
+        } catch (error) {
+          this.testSession.saveError = "Could not save this test. Browser storage may be full.";
+          this.renderTest();
+          return false;
+        }
+      },
+
+      clearSavedTestSession() {
+        localStorage.removeItem(testStorageKey);
+      },
+
       writeDataStatus(message) {
         const status = document.getElementById("data-status");
         if (status) status.textContent = message;
@@ -723,6 +784,7 @@
           this.guidedActive = false;
           this.selectedWordId = null;
           this.testSession = { questions: [], index: 0, answers: [], result: null };
+          this.clearSavedTestSession();
           this.render();
           this.writeDataStatus("Progress imported.");
         } catch (error) {
@@ -742,6 +804,7 @@
         this.showTranslation = false;
         this.selectedWordId = null;
         this.testSession = { questions: [], index: 0, answers: [], result: null };
+        this.clearSavedTestSession();
         this.render();
         this.writeDataStatus("Local progress reset.");
       },
@@ -1021,8 +1084,11 @@
           index: 0,
           answers: [],
           result: null,
-          populationSize: this.assessmentWordBank.length >= 10000 ? 10000 : wordBank.length
+          populationSize: this.assessmentWordBank.length >= 10000 ? 10000 : wordBank.length,
+          savedAt: "",
+          saveError: ""
         };
+        this.clearSavedTestSession();
         this.renderTest();
       },
 
@@ -1037,26 +1103,35 @@
             known ? "testCorrect" : "testWrong"
           );
         }
-        this.testSession.answers.push({
+        this.testSession.answers[this.testSession.index] = {
           wordId: question.word.id,
           level: question.word.level,
           rank: question.word.rank || question.word.frequencyRank,
           known,
           selected: selectedOption
-        });
+        };
         this.testSession.index += 1;
         if (this.testSession.index >= this.testSession.questions.length) {
-          const result = core.estimateVocabularyRange(this.testSession.answers, this.testSession.populationSize || 10000);
+          const completedAnswers = this.testSession.answers.slice(0, this.testSession.questions.length).filter(Boolean);
+          const result = core.estimateVocabularyRange(completedAnswers, this.testSession.populationSize || 10000);
           this.testSession.result = result;
           Object.assign(this.state.user, result);
+          this.clearSavedTestSession();
           this.state.tests.push({
             date: core.localDateKey(),
-            answers: this.testSession.answers.map((answer) => ({ ...answer })),
+            answers: completedAnswers.map((answer) => ({ ...answer })),
             result: { ...result }
           });
         }
         this.saveState();
         this.render();
+      },
+
+      previousTestQuestion() {
+        if (!this.testSession.questions.length || this.testSession.index <= 0) return;
+        this.testSession.result = null;
+        this.testSession.index -= 1;
+        this.renderTest();
       },
 
       renderTest() {
@@ -1072,10 +1147,18 @@
           content.innerHTML = `<p class="muted">Start a 500-question objective test. The app randomly samples without replacement from ${sourceCount} frequency-ranked daily words and estimates vocabulary size from the correct-answer proportion.</p>`;
           return;
         }
-        content.innerHTML = `<p class="eyebrow">Objective vocabulary assessment</p><p class="muted">Question ${this.testSession.index + 1} of ${this.testSession.questions.length}</p><h3>${core.escapeHtml(question.word.word)}</h3><div class="button-grid">${question.options.map((option) => `<button class="test-option" type="button" data-option="${core.escapeHtml(option)}">${core.escapeHtml(option)}</button>`).join("")}</div>`;
+        const previousAnswer = this.testSession.answers[this.testSession.index]?.selected;
+        const savedText = this.testSession.saveError
+          ? `<p class="muted">${core.escapeHtml(this.testSession.saveError)}</p>`
+          : this.testSession.savedAt
+            ? `<p class="muted">Saved. You can return later and continue from this question.</p>`
+            : "";
+        content.innerHTML = `<p class="eyebrow">Objective vocabulary assessment</p><p class="muted">Question ${this.testSession.index + 1} of ${this.testSession.questions.length}</p><h3>${core.escapeHtml(question.word.word)}</h3><div class="button-grid">${question.options.map((option) => `<button class="test-option" type="button" data-option="${core.escapeHtml(option)}">${option === previousAnswer ? "Selected: " : ""}${core.escapeHtml(option)}</button>`).join("")}</div><div class="button-grid"><button id="previous-question" type="button" ${this.testSession.index <= 0 ? "disabled" : ""}>Previous</button><button id="save-test" type="button">Save test</button></div>${savedText}`;
         document.querySelectorAll(".test-option").forEach((button) => {
           button.addEventListener("click", () => this.answerTest(button.dataset.option));
         });
+        document.getElementById("previous-question")?.addEventListener("click", () => this.previousTestQuestion());
+        document.getElementById("save-test")?.addEventListener("click", () => this.saveTestSession());
       }
     };
 
