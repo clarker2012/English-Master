@@ -295,6 +295,24 @@ test("createVocabularyTest returns deterministic questions across levels", async
   assert.ok(questions.every((question) => question.word.zh.includes("；")), "answers should expose multiple meanings when available");
 });
 
+test("createVocabularyTest skips entries and options without Chinese meanings", async () => {
+  const core = await loadCore();
+  const state = core.createDefaultState();
+  const wordBank = [
+    { id: 1, word: "null-only", zh: "NULL", meanings: [], phrases: [], rank: 1 },
+    { id: 2, word: "phrase-only", zh: "NULL", meanings: [], phrases: [{ term: "phrase only", meanings: ["\u77ed\u8bed\u91ca\u4e49", "\u642d\u914d\u91ca\u4e49"] }], rank: 2 },
+    ...createSyntheticWordBank(20).map((word, index) => ({ ...word, id: index + 3, rank: index + 3 }))
+  ];
+
+  const questions = core.createVocabularyTest(state, 12, wordBank, () => 0.12);
+  const allOptions = questions.flatMap((question) => question.options);
+
+  assert.equal(questions.some((question) => question.word.word === "null-only"), false);
+  assert.ok(questions.some((question) => question.word.word === "phrase only"));
+  assert.equal(allOptions.includes("NULL"), false);
+  assert.ok(allOptions.every((option) => /[\u4e00-\u9fff]/.test(option)));
+});
+
 test("createVocabularyTest keeps option labels unique when meanings repeat", async () => {
   const core = await loadCore();
   const state = core.createDefaultState();
@@ -682,7 +700,7 @@ test("vocabulary test renders 500 objective choice questions without self-assess
     })
   });
 
-  app.startTest();
+  await app.startTest();
 
   assert.equal(app.testSession.questions.length, 500);
   assert.equal(app.testSession.populationSize, 10000);
@@ -711,7 +729,7 @@ test("vocabulary test can return to previous question and overwrite the answer",
     })
   });
 
-  app.startTest();
+  await app.startTest();
   const firstQuestion = app.testSession.questions[0];
   const secondQuestion = app.testSession.questions[1];
   app.answerTest(firstQuestion.word.zh);
@@ -738,7 +756,7 @@ test("vocabulary test can be saved and restored after returning", async () => {
     }
   });
   const firstLoad = await loadAppWithFakeDocument({ fetch, localStorage: storage });
-  firstLoad.app.startTest();
+  await firstLoad.app.startTest();
   firstLoad.app.answerTest(firstLoad.app.testSession.questions[0].word.zh);
   firstLoad.app.saveTestSession();
 
@@ -750,6 +768,54 @@ test("vocabulary test can be saved and restored after returning", async () => {
   assert.equal(secondLoad.app.testSession.questions.length, 500);
   assert.equal(secondLoad.app.testSession.answers[0].known, true);
   assert.match(secondLoad.elements.get("test-content").innerHTML, /Question 2 of 500/);
+});
+
+test("stale 36-question saved tests are discarded", async () => {
+  const storage = createMemoryStorage({
+    "context-vocabulary-trainer-test-session": JSON.stringify({
+      version: 1,
+      savedAt: "2026-05-29T00:00:00.000Z",
+      session: {
+        questions: createSyntheticWordBank(36).map((word) => ({ word, options: [word.zh] })),
+        index: 1,
+        answers: [],
+        result: null,
+        populationSize: 36
+      }
+    })
+  });
+
+  const { app, elements } = await loadAppWithFakeDocument({
+    localStorage: storage,
+    fetch: async () => ({
+      ok: true,
+      async json() {
+        return createSyntheticWordBank();
+      }
+    })
+  });
+
+  assert.equal(app.testSession.questions.length, 0);
+  assert.equal(storage.getItem("context-vocabulary-trainer-test-session"), null);
+  await app.startTest();
+  assert.equal(app.testSession.questions.length, 500);
+  assert.match(elements.get("test-content").innerHTML, /Question 1 of 500/);
+});
+
+test("vocabulary test does not fall back to the small local study vocabulary", async () => {
+  const { app, elements } = await loadAppWithFakeDocument({
+    fetch: async () => ({
+      ok: false,
+      async json() {
+        return [];
+      }
+    })
+  });
+
+  await app.startTest();
+
+  assert.equal(app.testSession.questions.length, 0);
+  assert.match(elements.get("test-content").innerHTML, /10,000-word assessment bank did not load/);
 });
 
 test("vocabulary test pronunciation button speaks the current term", async () => {
@@ -766,7 +832,7 @@ test("vocabulary test pronunciation button speaks the current term", async () =>
     spoken = text;
   };
 
-  app.startTest();
+  await app.startTest();
   const question = app.testSession.questions[0];
 
   assert.match(elements.get("test-content").innerHTML, /Play pronunciation/);

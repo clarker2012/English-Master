@@ -478,30 +478,62 @@
         };
       },
 
+      hasUsableChineseMeaning(entry) {
+        return Boolean(entry && entry.zh && entry.zh !== "NULL" && /[\u4e00-\u9fff]/.test(entry.zh));
+      },
+
+      getUsablePhrase(entry, questionIndex = 0) {
+        const phrases = Array.isArray(entry?.phrases)
+          ? entry.phrases.filter((phrase) => (
+            phrase.term &&
+            Array.isArray(phrase.meanings) &&
+            phrase.meanings.join("").match(/[\u4e00-\u9fff]/)
+          ))
+          : [];
+        if (!phrases.length) return null;
+        return phrases[(entry.id + questionIndex) % phrases.length];
+      },
+
+      getChoiceMeaning(entry) {
+        if (this.hasUsableChineseMeaning(entry)) return entry.zh;
+        const phrase = this.getUsablePhrase(entry);
+        return phrase ? phrase.meanings.join("；") : "";
+      },
+
       createVocabularyTest(state, size = 500, wordBank = state.vocabulary, random = Math.random) {
-        const sourceWords = wordBank.length ? wordBank : state.vocabulary;
+        const rawSourceWords = wordBank.length ? wordBank : state.vocabulary;
+        const sourceWords = rawSourceWords.filter((word) => (
+          this.hasUsableChineseMeaning(word) || this.getUsablePhrase(word)
+        ));
         const sortedWords = [...sourceWords].sort((a, b) => (
           (a.rank || a.frequencyRank || 0) - (b.rank || b.frequencyRank || 0) || a.word.localeCompare(b.word)
         ));
         const selected = this.shuffleSample(sortedWords, size, random);
         return selected.map((word, questionIndex) => {
-          const phrase = Array.isArray(word.phrases) && word.phrases.length && (word.id + questionIndex) % 4 === 0
-            ? word.phrases[(word.id + questionIndex) % word.phrases.length]
-            : null;
-          const displayTerm = phrase ? phrase.term : word.word;
-          const displayMeaning = phrase ? phrase.meanings.join("；") : word.zh;
+          const phrase = this.getUsablePhrase(word, questionIndex);
+          const shouldUsePhrase = phrase && (!this.hasUsableChineseMeaning(word) || (word.id + questionIndex) % 4 === 0);
+          const displayTerm = shouldUsePhrase ? phrase.term : word.word;
+          const displayMeaning = shouldUsePhrase ? phrase.meanings.join("；") : word.zh;
           const usedLabels = new Set([displayMeaning]);
           const distractors = sortedWords
-            .filter((candidate) => candidate.id !== word.id && candidate.zh !== displayMeaning)
+            .map((candidate) => ({
+              ...candidate,
+              choiceMeaning: this.getChoiceMeaning(candidate)
+            }))
+            .filter((candidate) => (
+              candidate.id !== word.id &&
+              candidate.choiceMeaning &&
+              candidate.choiceMeaning !== displayMeaning
+            ))
             .sort((a, b) => (
               Math.abs((a.rank || a.frequencyRank || 0) - (word.rank || word.frequencyRank || 0)) -
               Math.abs((b.rank || b.frequencyRank || 0) - (word.rank || word.frequencyRank || 0)) ||
               a.word.localeCompare(b.word)
             ))
             .reduce((labels, candidate) => {
-              if (labels.length >= 3 || usedLabels.has(candidate.zh)) return labels;
-              usedLabels.add(candidate.zh);
-              labels.push(candidate.zh);
+              if (labels.length >= 3 || usedLabels.has(candidate.choiceMeaning)) return labels;
+              usedLabels.add(candidate.choiceMeaning);
+              labels.push(candidate.choiceMeaning);
               return labels;
             }, []);
           const options = [...distractors];
@@ -723,7 +755,9 @@
             payload?.version !== 1 ||
             !Array.isArray(session?.questions) ||
             !Array.isArray(session?.answers) ||
-            !Number.isFinite(session?.index)
+            !Number.isFinite(session?.index) ||
+            session.questions.length !== 500 ||
+            session.populationSize !== 10000
           ) {
             throw new Error("Invalid saved test");
           }
@@ -1159,14 +1193,30 @@
         ].map(([label, value]) => `<div class="panel"><p class="eyebrow">${label}</p><h2>${value}</h2></div>`).join("");
       },
 
-      startTest() {
-        const wordBank = this.assessmentWordBank.length >= 10000 ? this.assessmentWordBank : this.state.vocabulary;
+      async startTest() {
+        if (this.assessmentWordBank.length < 10000) {
+          this.assessmentWordBank = await this.loadAssessmentWordBank();
+        }
+        if (this.assessmentWordBank.length < 10000) {
+          this.testSession = {
+            questions: [],
+            index: 0,
+            answers: [],
+            result: null,
+            populationSize: 10000,
+            loadError: "The 10,000-word assessment bank did not load. Please refresh the page and try again."
+          };
+          this.clearSavedTestSession();
+          this.renderTest();
+          return;
+        }
+        const wordBank = this.assessmentWordBank;
         this.testSession = {
           questions: core.createVocabularyTest(this.state, 500, wordBank),
           index: 0,
           answers: [],
           result: null,
-          populationSize: this.assessmentWordBank.length >= 10000 ? 10000 : wordBank.length,
+          populationSize: 10000,
           savedAt: "",
           saveError: ""
         };
@@ -1231,8 +1281,11 @@
         }
         const question = this.testSession.questions[this.testSession.index];
         if (!question) {
-          const sourceCount = this.assessmentWordBank.length || this.state.vocabulary.length;
-          content.innerHTML = `<p class="muted">Start a 500-question objective test. The app randomly samples without replacement from ${sourceCount} frequency-ranked daily words and estimates vocabulary size from the correct-answer proportion.</p>`;
+          const sourceCount = this.assessmentWordBank.length;
+          const message = this.testSession.loadError
+            ? this.testSession.loadError
+            : `Start a 500-question objective test. The app randomly samples without replacement from ${sourceCount} frequency-ranked daily words and estimates vocabulary size from the correct-answer proportion.`;
+          content.innerHTML = `<p class="muted">${core.escapeHtml(message)}</p>`;
           return;
         }
         const previousAnswer = this.testSession.answers[this.testSession.index]?.selected;
