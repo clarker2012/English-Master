@@ -250,6 +250,15 @@ test("estimateVocabularyRange returns an approximate range from test answers", a
   assert.ok(result.confidenceHigh > result.estimatedVocabulary);
 });
 
+test("formatDjPhonetic normalizes mixed source phonetics to British DJ display", async () => {
+  const core = await loadCore();
+
+  assert.equal(core.formatDjPhonetic("mjuːˈnɪsɪp(ə)l"), "DJ /mjuːˈnɪsɪpəl/");
+  assert.equal(core.formatDjPhonetic("ˈbroʊkən"), "DJ /ˈbrəʊkən/");
+  assert.equal(core.formatDjPhonetic("fɔːr; fər"), "DJ /fɔː; fə/");
+  assert.equal(core.formatDjPhonetic("NULL"), "");
+});
+
 test("generatePassage returns sentences and target words from learner state", async () => {
   const core = await loadCore();
   const state = core.createDefaultState();
@@ -268,6 +277,14 @@ test("default vocabulary meanings use Chinese characters", async () => {
   for (const word of state.vocabulary) {
     assert.match(word.zh, /[\u4e00-\u9fff]/, `${word.word} meaning should include Chinese characters`);
   }
+});
+
+test("default study vocabulary uses IPA phonetics instead of respelling", async () => {
+  const core = await loadCore();
+  const state = core.createDefaultState();
+
+  assert.equal(state.vocabulary.some((word) => /[A-Z]{2,}|-/.test(word.phonetic)), false);
+  assert.ok(state.vocabulary.every((word) => core.formatDjPhonetic(word.phonetic).startsWith("DJ /")));
 });
 
 test("generatePassage returns a Chinese translation", async () => {
@@ -478,6 +495,26 @@ test("parseProgress rejects non-array vocabulary and falls back for unusable voc
 
   assert.equal(state.vocabulary.length, defaults.vocabulary.length);
   assert.deepEqual(state.vocabulary, defaults.vocabulary);
+});
+
+test("parseProgress upgrades saved default vocabulary respellings to DJ IPA", async () => {
+  const core = await loadCore();
+  const defaults = core.createDefaultState();
+  const state = core.parseProgress(JSON.stringify({
+    version: 1,
+    state: {
+      user: {},
+      vocabulary: [{
+        ...defaults.vocabulary[0],
+        phonetic: "/AN-uh-lyze/",
+        knownScore: 2
+      }]
+    }
+  }));
+
+  assert.equal(state.vocabulary[0].phonetic, defaults.vocabulary[0].phonetic);
+  assert.equal(core.formatDjPhonetic(state.vocabulary[0].phonetic), "DJ /əˈnælaɪz/");
+  assert.equal(state.vocabulary[0].knownScore, 2);
 });
 
 test("getSentenceTargetWordIds returns only target words present in that sentence", async () => {
@@ -858,9 +895,11 @@ test("full render preserves the selected word card", async () => {
   const { app, elements } = await loadAppWithFakeDocument();
   app.selectWord(1);
   assert.match(elements.get("word-card").innerHTML, /analyze/);
+  assert.match(elements.get("word-card").innerHTML, /DJ \//);
   app.showTranslation = true;
   app.render();
   assert.match(elements.get("word-card").innerHTML, /analyze/);
+  assert.match(elements.get("word-card").innerHTML, /DJ \//);
 });
 
 test("escapeHtml protects rendered text", async () => {
