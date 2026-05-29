@@ -115,6 +115,26 @@
     .file-button { display: inline-block; text-align: center; }
     .danger { color: var(--danger); border-color: #e7b7b7; }
     .stats-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .voice-wave {
+      display: grid;
+      grid-template-columns: repeat(18, 1fr);
+      align-items: center;
+      gap: 3px;
+      height: 56px;
+      margin: 10px 0;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fbfa;
+    }
+    .voice-wave span {
+      display: block;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--accent);
+      opacity: 0.35;
+      transition: height 80ms linear, opacity 80ms linear;
+    }
     pre { white-space: pre-wrap; overflow: auto; }
     @media (max-width: 820px) {
       .app-shell { padding: 14px; }
@@ -616,6 +636,7 @@
       guidedActive: false,
       showTranslation: false,
       selectedWordId: null,
+      microphoneMonitor: null,
       testSession: { questions: [], index: 0, answers: [], result: null },
 
       async init() {
@@ -976,11 +997,68 @@
         return recognition;
       },
 
+      createWaveform() {
+        return `<div id="voice-wave" class="voice-wave" aria-label="Microphone input level">${Array.from({ length: 18 }, () => "<span></span>").join("")}</div>`;
+      },
+
+      stopMicrophoneMonitor() {
+        const monitor = this.microphoneMonitor;
+        if (!monitor) return;
+        if (monitor.animationFrame) cancelAnimationFrame(monitor.animationFrame);
+        monitor.stream?.getTracks?.().forEach((track) => track.stop());
+        monitor.audioContext?.close?.();
+        this.microphoneMonitor = null;
+      },
+
+      async startMicrophoneMonitor() {
+        this.stopMicrophoneMonitor();
+        const feedback = document.getElementById("speech-feedback");
+        if (!navigator.mediaDevices?.getUserMedia || (typeof window.AudioContext !== "function" && typeof window.webkitAudioContext !== "function")) {
+          if (feedback) feedback.textContent = "Microphone level is unavailable in this browser.";
+          return null;
+        }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          const audioContext = new AudioContextClass();
+          const analyser = audioContext.createAnalyser();
+          analyser.fftSize = 256;
+          const source = audioContext.createMediaStreamSource(stream);
+          source.connect(analyser);
+          const samples = new Uint8Array(analyser.fftSize);
+          const monitor = { stream, audioContext, analyser, samples, animationFrame: null };
+          this.microphoneMonitor = monitor;
+          const draw = () => {
+            analyser.getByteTimeDomainData(samples);
+            let total = 0;
+            for (const value of samples) {
+              const centered = value - 128;
+              total += centered * centered;
+            }
+            const level = Math.min(1, Math.sqrt(total / samples.length) / 48);
+            document.querySelectorAll("#voice-wave span").forEach((bar, index) => {
+              const pulse = Math.abs(Math.sin((Date.now() / 140) + index));
+              const height = 8 + Math.round(level * 42 * (0.45 + pulse * 0.55));
+              bar.style.height = `${height}px`;
+              bar.style.opacity = String(0.3 + level * 0.7);
+            });
+            monitor.animationFrame = requestAnimationFrame(draw);
+          };
+          draw();
+          if (feedback) feedback.textContent = "Microphone is listening. Speak now.";
+          return monitor;
+        } catch (error) {
+          if (feedback) feedback.textContent = "Microphone permission is required to show the voice wave.";
+          return null;
+        }
+      },
+
       startSpeaking() {
         const sentence = this.passage.sentences[this.currentSentenceIndex] || this.passage.sentences[0] || "";
         const feedback = document.getElementById("reading-feedback");
         if (!feedback) return;
-        feedback.innerHTML = `<p class="muted">Listening to your reading...</p><p class="muted" id="speech-feedback"></p>`;
+        feedback.innerHTML = `<p class="muted">Listening to your reading...</p>${this.createWaveform()}<p class="muted" id="speech-feedback"></p>`;
+        this.startMicrophoneMonitor();
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const speechFeedback = document.getElementById("speech-feedback");
         if (!Recognition) {
@@ -999,9 +1077,11 @@
           this.applyAutomaticReadingAssessment(sentence, transcript, similarity);
         };
         recognition.onerror = () => {
+          this.stopMicrophoneMonitor();
           if (speechFeedback) speechFeedback.textContent = "Speech recognition unavailable. Please try again.";
         };
         recognition.onend = () => {
+          this.stopMicrophoneMonitor();
           if (!receivedResult) {
             const fallback = document.getElementById("speech-feedback");
             if (fallback) fallback.textContent = "No speech detected. Please read the sentence again.";
@@ -1010,11 +1090,13 @@
         try {
           recognition.start();
         } catch (error) {
+          this.stopMicrophoneMonitor();
           if (speechFeedback) speechFeedback.textContent = "Could not start speech recognition. Please try again.";
         }
       },
 
       applyAutomaticReadingAssessment(sentence, transcript, similarity) {
+        this.stopMicrophoneMonitor();
         const eventName = similarity >= 0.85 ? "readSmooth" : similarity >= 0.6 ? "readOkay" : "readDifficult";
         if (!["readSmooth", "readOkay", "readDifficult"].includes(eventName)) return;
         const sentenceTargetIds = core.getSentenceTargetWordIds(this.state, this.passage, this.currentSentenceIndex);

@@ -180,6 +180,9 @@ async function loadAppWithFakeDocument(options = {}) {
     }),
     clearTimeout,
     fetch: options.fetch,
+    navigator: options.navigator || {},
+    requestAnimationFrame: options.requestAnimationFrame || (() => 1),
+    cancelAnimationFrame: options.cancelAnimationFrame || (() => {}),
     console
   };
   if (options.Recognition) {
@@ -568,6 +571,56 @@ test("start speaking listens to learner reading and records accuracy feedback", 
   assert.equal(app.state.vocabulary.find((word) => word.id === 18).readCount, beforeSecond);
   assert.match(elements.get("reading-feedback").innerHTML, /Recognized/);
   assert.match(elements.get("reading-feedback").innerHTML, /100%/);
+});
+
+test("start speaking requests microphone and renders a voice wave", async () => {
+  let recognition;
+  class WaitingRecognition {
+    constructor() {
+      recognition = this;
+    }
+    start() {}
+  }
+  const stream = {
+    getTracks() {
+      return [{ stop() { this.stopped = true; } }];
+    }
+  };
+  class FakeAudioContext {
+    createAnalyser() {
+      return {
+        fftSize: 0,
+        getByteTimeDomainData(samples) {
+          samples.fill(150);
+        }
+      };
+    }
+    createMediaStreamSource() {
+      return { connect() {} };
+    }
+    close() {
+      this.closed = true;
+    }
+  }
+  const { app, elements } = await loadAppWithFakeDocument({
+    Recognition: WaitingRecognition,
+    navigator: {
+      mediaDevices: {
+        getUserMedia: async (constraints) => {
+          assert.deepEqual(constraints, { audio: true });
+          return stream;
+        }
+      }
+    }
+  });
+  app.startMicrophoneMonitor = async () => ({ stream });
+
+  elements.get("start-speaking").listeners.click();
+
+  assert.ok(recognition, "speech recognition should start");
+  assert.match(elements.get("reading-feedback").innerHTML, /voice-wave/);
+  assert.match(elements.get("reading-feedback").innerHTML, /Listening to your reading/);
+  assert.equal(FakeAudioContext.name, "FakeAudioContext");
 });
 
 test("guided reading resumes active sentence and feedback advances with scoped word updates", async () => {
