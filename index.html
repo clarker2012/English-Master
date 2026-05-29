@@ -735,6 +735,7 @@
       guidedActive: false,
       showTranslation: false,
       selectedWordId: null,
+      microphoneStream: null,
       microphoneMonitor: null,
       testSession: { questions: [], index: 0, answers: [], result: null },
 
@@ -743,6 +744,7 @@
         this.state = this.loadState();
         this.passage = core.generatePassage(this.state);
         this.bindEvents();
+        window.addEventListener("beforeunload", () => this.releaseMicrophone());
         this.render();
         this.assessmentWordBank = await this.loadAssessmentWordBank();
         this.testSession = this.loadSavedTestSession() || this.testSession;
@@ -1283,9 +1285,22 @@
         const monitor = this.microphoneMonitor;
         if (!monitor) return;
         if (monitor.animationFrame) cancelAnimationFrame(monitor.animationFrame);
-        monitor.stream?.getTracks?.().forEach((track) => track.stop());
         monitor.audioContext?.close?.();
         this.microphoneMonitor = null;
+      },
+
+      releaseMicrophone() {
+        this.stopMicrophoneMonitor();
+        this.microphoneStream?.getTracks?.().forEach((track) => track.stop());
+        this.microphoneStream = null;
+      },
+
+      async getMicrophoneStream() {
+        const activeStream = this.microphoneStream;
+        const activeTracks = activeStream?.getTracks?.() || [];
+        if (activeTracks.some((track) => track.readyState !== "ended")) return activeStream;
+        this.microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        return this.microphoneStream;
       },
 
       async startMicrophoneMonitor() {
@@ -1296,7 +1311,7 @@
           return null;
         }
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const stream = await this.getMicrophoneStream();
           const AudioContextClass = window.AudioContext || window.webkitAudioContext;
           const audioContext = new AudioContextClass();
           const analyser = audioContext.createAnalyser();
@@ -1326,7 +1341,7 @@
           if (feedback) feedback.textContent = "Microphone is listening. Speak now.";
           return monitor;
         } catch (error) {
-          if (feedback) feedback.textContent = "Microphone permission is required to show the voice wave.";
+          if (feedback) feedback.textContent = "Microphone permission is required. Use the local http://127.0.0.1 page and choose Allow for this site to avoid repeated prompts.";
           return null;
         }
       },

@@ -191,8 +191,11 @@ async function loadAppWithFakeDocument(options = {}) {
     clearTimeout,
     fetch: options.fetch,
     navigator: options.navigator || {},
+    AudioContext: options.AudioContext,
+    webkitAudioContext: options.webkitAudioContext,
     requestAnimationFrame: options.requestAnimationFrame || (() => 1),
     cancelAnimationFrame: options.cancelAnimationFrame || (() => {}),
+    addEventListener() {},
     console
   };
   if (options.Recognition) {
@@ -722,6 +725,57 @@ test("start speaking requests microphone and renders a voice wave", async () => 
   assert.match(elements.get("reading-feedback").innerHTML, /voice-wave/);
   assert.match(elements.get("reading-feedback").innerHTML, /Listening to your reading/);
   assert.equal(FakeAudioContext.name, "FakeAudioContext");
+});
+
+test("microphone monitor reuses an already authorized stream during the page session", async () => {
+  let requestCount = 0;
+  const track = {
+    readyState: "live",
+    stopped: false,
+    stop() {
+      this.stopped = true;
+      this.readyState = "ended";
+    }
+  };
+  const stream = {
+    getTracks() {
+      return [track];
+    }
+  };
+  class FakeAudioContext {
+    createAnalyser() {
+      return {
+        fftSize: 0,
+        getByteTimeDomainData(samples) {
+          samples.fill(128);
+        }
+      };
+    }
+    createMediaStreamSource() {
+      return { connect() {} };
+    }
+    close() {}
+  }
+  const { app } = await loadAppWithFakeDocument({
+    AudioContext: FakeAudioContext,
+    navigator: {
+      mediaDevices: {
+        getUserMedia: async () => {
+          requestCount += 1;
+          return stream;
+        }
+      }
+    }
+  });
+
+  await app.startMicrophoneMonitor();
+  app.stopMicrophoneMonitor();
+  await app.startMicrophoneMonitor();
+
+  assert.equal(requestCount, 1);
+  assert.equal(track.stopped, false);
+  app.releaseMicrophone();
+  assert.equal(track.stopped, true);
 });
 
 test("guided reading resumes active sentence and feedback advances with scoped word updates", async () => {
