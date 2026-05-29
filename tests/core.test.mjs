@@ -106,6 +106,16 @@ async function loadAppWithFakeDocument(options = {}) {
   for (const element of views) elements.set(element.id, element);
   for (const id of [
     "dashboard",
+    "account-email",
+    "account-login",
+    "account-logout",
+    "account-status",
+    "account-guest-status",
+    "guest-account-row",
+    "profile-account-row",
+    "profile-select",
+    "profile-name",
+    "create-profile",
     "generate-passage",
     "toggle-translation",
     "play-passage",
@@ -537,6 +547,42 @@ test("app init renders dashboard passage and word card through DOMContentLoaded"
   assert.match(elements.get("dashboard").innerHTML, /Vocabulary/);
   assert.match(elements.get("passage").innerHTML, /word-token/);
   assert.match(elements.get("word-card").innerHTML, /Select a highlighted word/);
+  assert.equal(elements.get("profile-account-row").hidden, true);
+});
+
+test("email login creates a local account with a learning role", async () => {
+  const storage = createMemoryStorage();
+  const { app, elements } = await loadAppWithFakeDocument({ localStorage: storage });
+
+  elements.get("account-email").value = "Learner@Example.com";
+  app.loginWithEmail();
+
+  const saved = JSON.parse(storage.getItem("context-vocabulary-trainer-accounts"));
+  assert.equal(saved.accounts.length, 1);
+  assert.equal(saved.accounts[0].email, "learner@example.com");
+  assert.equal(saved.accounts[0].profiles.length, 1);
+  assert.equal(elements.get("guest-account-row").hidden, true);
+  assert.equal(elements.get("profile-account-row").hidden, false);
+  assert.match(elements.get("account-status").textContent, /learner@example.com/);
+});
+
+test("one account can switch between independent learning roles", async () => {
+  const storage = createMemoryStorage();
+  const { app, elements } = await loadAppWithFakeDocument({ localStorage: storage });
+
+  elements.get("account-email").value = "role@example.com";
+  app.loginWithEmail();
+  const firstProfileId = app.getCurrentAccount().currentProfileId;
+  app.state.user.estimatedVocabulary = 7200;
+  elements.get("profile-name").value = "Fresh start";
+  app.createLearningProfile();
+
+  assert.equal(app.state.user.estimatedVocabulary, 5000);
+  assert.equal(app.getCurrentProfile().name, "Fresh start");
+
+  app.switchLearningProfile(firstProfileId);
+  assert.equal(app.state.user.estimatedVocabulary, 7200);
+  assert.equal(app.getCurrentAccount().profiles.length, 2);
 });
 
 test("importProgress leaves current state intact when saving imported progress fails", async () => {

@@ -27,7 +27,7 @@
       font-family: Arial, "Microsoft YaHei", sans-serif;
       line-height: 1.5;
     }
-    button, input { font: inherit; }
+    button, input, select { font: inherit; }
     button, .file-button {
       border: 1px solid var(--line);
       background: var(--surface);
@@ -58,6 +58,30 @@
     }
     .tabs { display: flex; flex-wrap: wrap; gap: 8px; }
     .tab.is-active { background: var(--accent); color: white; border-color: var(--accent); }
+    .account-panel {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .account-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .account-row[hidden] { display: none; }
+    .account-row input, .account-row select {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      min-width: 220px;
+      background: var(--surface);
+      color: var(--ink);
+    }
+    .account-status {
+      margin: 0;
+      color: var(--muted);
+    }
     .dashboard {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -160,6 +184,21 @@
         <button class="tab" data-view="data-view" type="button">Data</button>
       </nav>
     </header>
+
+    <section id="account-panel" class="panel account-panel" aria-label="Account and learning profiles">
+      <div id="guest-account-row" class="account-row">
+        <input id="account-email" type="email" autocomplete="email" placeholder="Email address">
+        <button id="account-login" type="button">Register / Login</button>
+        <p id="account-guest-status" class="account-status">Use an email account to keep separate learning records on this device.</p>
+      </div>
+      <div id="profile-account-row" class="account-row" hidden>
+        <p id="account-status" class="account-status"></p>
+        <select id="profile-select" aria-label="Learning role"></select>
+        <input id="profile-name" type="text" placeholder="New role name">
+        <button id="create-profile" type="button">New role</button>
+        <button id="account-logout" type="button">Log out</button>
+      </div>
+    </section>
 
     <section id="dashboard" class="dashboard" aria-label="Learning dashboard"></section>
 
@@ -685,9 +724,11 @@
 
     const storageKey = "context-vocabulary-trainer-progress";
     const testStorageKey = "context-vocabulary-trainer-test-session";
+    const accountStorageKey = "context-vocabulary-trainer-accounts";
 
     const app = {
       state: core.createDefaultState(),
+      accountStore: { accounts: [], currentAccountId: null },
       assessmentWordBank: [],
       passage: null,
       currentSentenceIndex: 0,
@@ -698,12 +739,14 @@
       testSession: { questions: [], index: 0, answers: [], result: null },
 
       async init() {
+        this.accountStore = this.loadAccountStore();
         this.state = this.loadState();
-        this.assessmentWordBank = await this.loadAssessmentWordBank();
-        this.testSession = this.loadSavedTestSession() || this.testSession;
         this.passage = core.generatePassage(this.state);
         this.bindEvents();
         this.render();
+        this.assessmentWordBank = await this.loadAssessmentWordBank();
+        this.testSession = this.loadSavedTestSession() || this.testSession;
+        this.renderTest();
       },
 
       async loadAssessmentWordBank() {
@@ -750,10 +793,146 @@
         document.getElementById("export-progress").addEventListener("click", () => this.exportProgress());
         document.getElementById("import-progress").addEventListener("change", (event) => this.importProgress(event));
         document.getElementById("reset-progress").addEventListener("click", () => this.resetProgress());
+        document.getElementById("account-login").addEventListener("click", () => this.loginWithEmail());
+        document.getElementById("account-logout").addEventListener("click", () => this.logoutAccount());
+        document.getElementById("create-profile").addEventListener("click", () => this.createLearningProfile());
+        document.getElementById("profile-select").addEventListener("change", (event) => this.switchLearningProfile(event.target.value));
+      },
+
+      normalizeEmail(value) {
+        return String(value || "").trim().toLowerCase();
+      },
+
+      createAccount(email) {
+        const id = `acct-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const profile = this.createProfileRecord("Main learner");
+        return {
+          id,
+          email,
+          profiles: [profile],
+          currentProfileId: profile.id,
+          createdAt: new Date().toISOString()
+        };
+      },
+
+      createProfileRecord(name) {
+        return {
+          id: `profile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: String(name || "New learner").trim() || "New learner",
+          state: core.createDefaultState(),
+          createdAt: new Date().toISOString()
+        };
+      },
+
+      loadAccountStore() {
+        try {
+          const raw = localStorage.getItem(accountStorageKey);
+          if (!raw) return { accounts: [], currentAccountId: null };
+          const parsed = JSON.parse(raw);
+          return {
+            accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
+            currentAccountId: typeof parsed.currentAccountId === "string" ? parsed.currentAccountId : null
+          };
+        } catch (error) {
+          return { accounts: [], currentAccountId: null };
+        }
+      },
+
+      saveAccountStore() {
+        localStorage.setItem(accountStorageKey, JSON.stringify(this.accountStore));
+      },
+
+      getCurrentAccount() {
+        return this.accountStore.accounts.find((account) => account.id === this.accountStore.currentAccountId) || null;
+      },
+
+      getCurrentProfile() {
+        const account = this.getCurrentAccount();
+        if (!account) return null;
+        return account.profiles.find((profile) => profile.id === account.currentProfileId) || null;
+      },
+
+      loginWithEmail() {
+        const emailInput = document.getElementById("account-email");
+        const email = this.normalizeEmail(emailInput?.value);
+        if (!email || !email.includes("@")) {
+          this.writeAccountStatus("Please enter a valid email address.");
+          return;
+        }
+        let account = this.accountStore.accounts.find((item) => item.email === email);
+        if (!account) {
+          account = this.createAccount(email);
+          account.profiles[0].state = core.normalizeProgressState(this.state);
+          this.accountStore.accounts.push(account);
+        }
+        this.accountStore.currentAccountId = account.id;
+        this.saveAccountStore();
+        this.state = this.loadState();
+        this.passage = core.generatePassage(this.state);
+        this.selectedWordId = null;
+        this.testSession = this.loadSavedTestSession() || { questions: [], index: 0, answers: [], result: null };
+        this.render();
+      },
+
+      logoutAccount() {
+        this.saveState();
+        this.accountStore.currentAccountId = null;
+        this.saveAccountStore();
+        this.state = this.loadState();
+        this.passage = core.generatePassage(this.state);
+        this.selectedWordId = null;
+        this.render();
+      },
+
+      createLearningProfile() {
+        const account = this.getCurrentAccount();
+        if (!account) {
+          this.writeAccountStatus("Register or log in before creating learning roles.");
+          return;
+        }
+        this.saveState();
+        const nameInput = document.getElementById("profile-name");
+        const profile = this.createProfileRecord(nameInput?.value || `Learner ${account.profiles.length + 1}`);
+        account.profiles.push(profile);
+        account.currentProfileId = profile.id;
+        if (nameInput) nameInput.value = "";
+        this.saveAccountStore();
+        this.state = core.normalizeProgressState(profile.state);
+        this.passage = core.generatePassage(this.state);
+        this.currentSentenceIndex = 0;
+        this.guidedActive = false;
+        this.selectedWordId = null;
+        this.testSession = { questions: [], index: 0, answers: [], result: null };
+        this.clearSavedTestSession();
+        this.render();
+      },
+
+      switchLearningProfile(profileId) {
+        const account = this.getCurrentAccount();
+        if (!account || !account.profiles.some((profile) => profile.id === profileId)) return;
+        this.saveState();
+        account.currentProfileId = profileId;
+        this.saveAccountStore();
+        this.state = this.loadState();
+        this.passage = core.generatePassage(this.state);
+        this.currentSentenceIndex = 0;
+        this.guidedActive = false;
+        this.selectedWordId = null;
+        this.testSession = this.loadSavedTestSession() || { questions: [], index: 0, answers: [], result: null };
+        this.render();
+      },
+
+      writeAccountStatus(message) {
+        const status = document.getElementById("account-status");
+        const guestStatus = document.getElementById("account-guest-status");
+        if (status) status.textContent = message;
+        if (guestStatus) guestStatus.textContent = message;
       },
 
       loadState() {
         try {
+          const profile = this.getCurrentProfile();
+          if (profile?.state) return core.normalizeProgressState(profile.state);
           const saved = localStorage.getItem(storageKey);
           return saved ? core.parseProgress(saved) : core.createDefaultState();
         } catch (error) {
@@ -763,6 +942,12 @@
 
       saveState(state = this.state) {
         try {
+          const profile = this.getCurrentProfile();
+          if (profile) {
+            profile.state = core.normalizeProgressState(state);
+            this.saveAccountStore();
+            return true;
+          }
           localStorage.setItem(storageKey, core.serializeProgress(state));
           return true;
         } catch (error) {
@@ -773,7 +958,7 @@
 
       loadSavedTestSession() {
         try {
-          const saved = localStorage.getItem(testStorageKey);
+          const saved = localStorage.getItem(this.getTestStorageKey());
           if (!saved) return null;
           const payload = JSON.parse(saved);
           const session = payload?.session;
@@ -797,7 +982,7 @@
             saveError: ""
           };
         } catch (error) {
-          localStorage.removeItem(testStorageKey);
+          localStorage.removeItem(this.getTestStorageKey());
           return null;
         }
       },
@@ -806,7 +991,7 @@
         if (!this.testSession.questions.length || this.testSession.result) return false;
         try {
           const savedAt = new Date().toISOString();
-          localStorage.setItem(testStorageKey, JSON.stringify({
+          localStorage.setItem(this.getTestStorageKey(), JSON.stringify({
             version: 1,
             savedAt,
             session: {
@@ -829,7 +1014,12 @@
       },
 
       clearSavedTestSession() {
-        localStorage.removeItem(testStorageKey);
+        localStorage.removeItem(this.getTestStorageKey());
+      },
+
+      getTestStorageKey() {
+        const profile = this.getCurrentProfile();
+        return profile ? `${testStorageKey}:${profile.id}` : testStorageKey;
       },
 
       writeDataStatus(message) {
@@ -877,8 +1067,12 @@
 
       resetProgress() {
         if (!window.confirm("Reset all local progress?")) return;
-        localStorage.removeItem(storageKey);
         this.state = core.createDefaultState();
+        if (this.getCurrentProfile()) {
+          this.saveState();
+        } else {
+          localStorage.removeItem(storageKey);
+        }
         this.passage = core.generatePassage(this.state);
         this.currentSentenceIndex = 0;
         this.guidedActive = false;
@@ -903,6 +1097,7 @@
       },
 
       render() {
+        this.renderAccount();
         this.renderDashboard();
         this.renderPassage();
         const selectedWord = this.state.vocabulary.find((word) => word.id === this.selectedWordId);
@@ -912,6 +1107,29 @@
         document.getElementById("wpm-control").value = this.state.user.targetWpm;
         document.getElementById("wpm-value").textContent = this.state.user.targetWpm;
         document.getElementById("toggle-translation").textContent = this.showTranslation ? "Hide Chinese" : "Show Chinese";
+      },
+
+      renderAccount() {
+        const account = this.getCurrentAccount();
+        const profile = this.getCurrentProfile();
+        const guestRow = document.getElementById("guest-account-row");
+        const profileRow = document.getElementById("profile-account-row");
+        const status = document.getElementById("account-status");
+        const guestStatus = document.getElementById("account-guest-status");
+        const select = document.getElementById("profile-select");
+        if (!guestRow || !profileRow || !select) return;
+        guestRow.hidden = Boolean(account);
+        profileRow.hidden = !account;
+        if (!account) {
+          if (guestStatus && !guestStatus.textContent) {
+            guestStatus.textContent = "Use an email account to keep separate learning records on this device.";
+          }
+          return;
+        }
+        if (status) status.textContent = `${account.email} · ${profile?.name || "No role selected"}`;
+        select.innerHTML = account.profiles
+          .map((item) => `<option value="${core.escapeHtml(item.id)}" ${item.id === account.currentProfileId ? "selected" : ""}>${core.escapeHtml(item.name)}</option>`)
+          .join("");
       },
 
       renderDashboard() {
