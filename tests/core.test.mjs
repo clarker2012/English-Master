@@ -634,6 +634,8 @@ test("vocabulary test renders 500 objective choice questions without self-assess
   assert.equal(app.testSession.questions.length, 500);
   assert.equal(app.testSession.populationSize, 10000);
   assert.doesNotMatch(elements.get("test-content").innerHTML, /id="know-word"|id="unknown-word"/);
+  assert.match(elements.get("test-content").innerHTML, /Play pronunciation/);
+  assert.match(elements.get("test-content").innerHTML, /Phrase pronunciation|word/);
 
   const firstQuestion = app.testSession.questions[0];
   const secondQuestion = app.testSession.questions[1];
@@ -695,6 +697,28 @@ test("vocabulary test can be saved and restored after returning", async () => {
   assert.equal(secondLoad.app.testSession.questions.length, 500);
   assert.equal(secondLoad.app.testSession.answers[0].known, true);
   assert.match(secondLoad.elements.get("test-content").innerHTML, /Question 2 of 500/);
+});
+
+test("vocabulary test pronunciation button speaks the current term", async () => {
+  const { app, elements } = await loadAppWithFakeDocument({
+    fetch: async () => ({
+      ok: true,
+      async json() {
+        return createSyntheticWordBank();
+      }
+    })
+  });
+  let spoken = "";
+  app.speak = (text) => {
+    spoken = text;
+  };
+
+  app.startTest();
+  const question = app.testSession.questions[0];
+
+  assert.match(elements.get("test-content").innerHTML, /Play pronunciation/);
+  app.playTestPronunciation();
+  assert.equal(spoken, question.word.word);
 });
 
 test("speech recognition start errors show fallback text without throwing", async () => {

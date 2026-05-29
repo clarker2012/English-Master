@@ -1134,6 +1134,12 @@
         this.renderTest();
       },
 
+      playTestPronunciation() {
+        const question = this.testSession.questions[this.testSession.index];
+        if (!question) return;
+        this.speak(question.word.word);
+      },
+
       renderTest() {
         const content = document.getElementById("test-content");
         if (!content) return;
@@ -1153,10 +1159,14 @@
           : this.testSession.savedAt
             ? `<p class="muted">Saved. You can return later and continue from this question.</p>`
             : "";
-        content.innerHTML = `<p class="eyebrow">Objective vocabulary assessment</p><p class="muted">Question ${this.testSession.index + 1} of ${this.testSession.questions.length}</p><h3>${core.escapeHtml(question.word.word)}</h3><div class="button-grid">${question.options.map((option) => `<button class="test-option" type="button" data-option="${core.escapeHtml(option)}">${option === previousAnswer ? "Selected: " : ""}${core.escapeHtml(option)}</button>`).join("")}</div><div class="button-grid"><button id="previous-question" type="button" ${this.testSession.index <= 0 ? "disabled" : ""}>Previous</button><button id="save-test" type="button">Save test</button></div>${savedText}`;
+        const phonetic = question.word.phonetic && question.word.phonetic !== "NULL"
+          ? `<p class="muted">${core.escapeHtml(question.word.phonetic)}</p>`
+          : `<p class="muted">Phrase pronunciation</p>`;
+        content.innerHTML = `<p class="eyebrow">Objective vocabulary assessment</p><p class="muted">Question ${this.testSession.index + 1} of ${this.testSession.questions.length}</p><h3>${core.escapeHtml(question.word.word)}</h3>${phonetic}<button id="play-test-pronunciation" type="button">Play pronunciation</button><div class="button-grid">${question.options.map((option) => `<button class="test-option" type="button" data-option="${core.escapeHtml(option)}">${option === previousAnswer ? "Selected: " : ""}${core.escapeHtml(option)}</button>`).join("")}</div><div class="button-grid"><button id="previous-question" type="button" ${this.testSession.index <= 0 ? "disabled" : ""}>Previous</button><button id="save-test" type="button">Save test</button></div>${savedText}`;
         document.querySelectorAll(".test-option").forEach((button) => {
           button.addEventListener("click", () => this.answerTest(button.dataset.option));
         });
+        document.getElementById("play-test-pronunciation")?.addEventListener("click", () => this.playTestPronunciation());
         document.getElementById("previous-question")?.addEventListener("click", () => this.previousTestQuestion());
         document.getElementById("save-test")?.addEventListener("click", () => this.saveTestSession());
       }
