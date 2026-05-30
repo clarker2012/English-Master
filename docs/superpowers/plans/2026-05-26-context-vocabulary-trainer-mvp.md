@@ -1,6 +1,6 @@
-# Context Vocabulary Trainer MVP Implementation Plan
+﻿# Context Vocabulary Trainer MVP Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build the local-first Context Vocabulary Trainer MVP as a directly runnable single-page `index.html` app with tests for the core learning logic.
 
@@ -29,7 +29,7 @@ The MVP stays dependency-free at runtime. The tests intentionally exercise pure 
 - Create: `tests/index-contract.test.mjs`
 - Create: `index.html`
 
-- [ ] **Step 1: Write the failing static contract test**
+- [x] **Step 1: Write the failing static contract test**
 
 Create `tests/index-contract.test.mjs`:
 
@@ -63,7 +63,7 @@ test("index.html exposes the CVT app namespace", () => {
 });
 ```
 
-- [ ] **Step 2: Add npm test script**
+- [x] **Step 2: Add npm test script**
 
 Create `package.json`:
 
@@ -79,7 +79,7 @@ Create `package.json`:
 }
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run:
 
@@ -89,7 +89,7 @@ npm test
 
 Expected: FAIL because `index.html` does not exist yet.
 
-- [ ] **Step 4: Create minimal app shell**
+- [x] **Step 4: Create minimal app shell**
 
 Create `index.html` with this minimal shell:
 
@@ -125,7 +125,7 @@ Create `index.html` with this minimal shell:
 </html>
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run:
 
@@ -135,7 +135,7 @@ npm test
 
 Expected: PASS for `tests/index-contract.test.mjs`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
@@ -152,7 +152,7 @@ git commit -m "test: add app contract harness"
 - Modify: `index.html`
 - Create: `tests/core.test.mjs`
 
-- [ ] **Step 1: Write failing tests for initial state and vocabulary shape**
+- [x] **Step 1: Write failing tests for initial state and vocabulary shape**
 
 Create `tests/core.test.mjs`:
 
@@ -221,7 +221,7 @@ test("mock vocabulary has required future-compatible fields", async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -231,7 +231,7 @@ npm test
 
 Expected: FAIL because `createDefaultState` is missing.
 
-- [ ] **Step 3: Add core defaults and 30+ vocabulary items**
+- [x] **Step 3: Add core defaults and 30+ vocabulary items**
 
 Replace the script body in `index.html` with:
 
@@ -319,7 +319,7 @@ Replace the script body in `index.html` with:
 </script>
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 
@@ -329,7 +329,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -346,7 +346,7 @@ git commit -m "feat: add vocabulary data model"
 - Modify: `index.html`
 - Modify: `tests/core.test.mjs`
 
-- [ ] **Step 1: Add failing tests for vocabulary estimation, passage generation, and mastery updates**
+- [x] **Step 1: Add failing tests for vocabulary estimation, passage generation, and mastery updates**
 
 Append to `tests/core.test.mjs`:
 
@@ -396,7 +396,7 @@ test("applyWordEvent updates mastery score and status", async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -406,7 +406,7 @@ npm test
 
 Expected: FAIL because the new core functions are missing.
 
-- [ ] **Step 3: Add core functions**
+- [x] **Step 3: Add core functions**
 
 Inside `const core = { ... }` in `index.html`, add these methods after `createDefaultState()`:
 
@@ -454,7 +454,7 @@ Inside `const core = { ... }` in `index.html`, add these methods after `createDe
         title: "Context Practice Session",
         sentences,
         text: sentences.join(" "),
-        zh: "通过短文、复习和朗读，把目标词放进真实语境中学习。",
+        zh: "閫氳繃鐭枃銆佸涔犲拰鏈楄锛屾妸鐩爣璇嶆斁杩涚湡瀹炶澧冧腑瀛︿範銆?,
         targetWordIds: words.map((word) => word.id)
       };
     },
@@ -494,7 +494,7 @@ Inside `const core = { ... }` in `index.html`, add these methods after `createDe
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 
@@ -504,7 +504,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -521,7 +521,7 @@ git commit -m "feat: add learning core logic"
 - Modify: `index.html`
 - Modify: `tests/index-contract.test.mjs`
 
-- [ ] **Step 1: Add failing static tests for navigation labels and controls**
+- [x] **Step 1: Add failing static tests for navigation labels and controls**
 
 Append to `tests/index-contract.test.mjs`:
 
@@ -542,7 +542,7 @@ test("index.html includes main navigation and study controls", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -552,7 +552,7 @@ npm test
 
 Expected: FAIL because the app shell lacks real controls.
 
-- [ ] **Step 3: Replace body with complete layout**
+- [x] **Step 3: Replace body with complete layout**
 
 Replace the `<body>...</body>` content in `index.html` with a complete app shell:
 
@@ -649,7 +649,7 @@ Keep the existing JavaScript content after the opening `<script>` tag, then clos
 </body>
 ```
 
-- [ ] **Step 4: Add responsive CSS**
+- [x] **Step 4: Add responsive CSS**
 
 Add inside `<head>` after `<title>`:
 
@@ -777,7 +777,7 @@ Add inside `<head>` after `<title>`:
 </style>
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run:
 
@@ -787,7 +787,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
@@ -804,7 +804,7 @@ git commit -m "feat: add app layout"
 - Modify: `index.html`
 - Modify: `tests/core.test.mjs`
 
-- [ ] **Step 1: Add failing tests for metric derivation and passage token markup**
+- [x] **Step 1: Add failing tests for metric derivation and passage token markup**
 
 Append to `tests/core.test.mjs`:
 
@@ -827,7 +827,7 @@ test("escapeHtml protects rendered text", async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -837,7 +837,7 @@ npm test
 
 Expected: FAIL because `deriveMetrics` and `escapeHtml` are missing.
 
-- [ ] **Step 3: Add core helpers**
+- [x] **Step 3: Add core helpers**
 
 Add these methods to `core`:
 
@@ -872,7 +872,7 @@ Add these methods to `core`:
     }
 ```
 
-- [ ] **Step 4: Add app state and render functions**
+- [x] **Step 4: Add app state and render functions**
 
 After `window.CVT = { core, app: {} };`, add:
 
@@ -973,7 +973,7 @@ After `window.CVT = { core, app: {} };`, add:
         card.innerHTML = `<p class="eyebrow">Word details</p><h2>Select a highlighted word</h2><p class="muted">Click a target word in the passage to inspect pronunciation, meaning, and example usage.</p>`;
         return;
       }
-      card.innerHTML = `<p class="eyebrow">${word.status}</p><h2>${core.escapeHtml(word.word)}</h2><p>${core.escapeHtml(word.phonetic)} · ${core.escapeHtml(word.pos)}</p><p><strong>${core.escapeHtml(word.zh)}</strong></p><p>${core.escapeHtml(word.example)}</p><p class="muted">Known score: ${word.knownScore}/5 · Clicks: ${word.clickCount}</p>`;
+      card.innerHTML = `<p class="eyebrow">${word.status}</p><h2>${core.escapeHtml(word.word)}</h2><p>${core.escapeHtml(word.phonetic)} 路 ${core.escapeHtml(word.pos)}</p><p><strong>${core.escapeHtml(word.zh)}</strong></p><p>${core.escapeHtml(word.example)}</p><p class="muted">Known score: ${word.knownScore}/5 路 Clicks: ${word.clickCount}</p>`;
     },
 
     renderStats() {
@@ -993,7 +993,7 @@ After `window.CVT = { core, app: {} };`, add:
   document.addEventListener("DOMContentLoaded", () => app.init());
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run:
 
@@ -1003,7 +1003,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
@@ -1020,7 +1020,7 @@ git commit -m "feat: render study dashboard"
 - Modify: `index.html`
 - Modify: `tests/core.test.mjs`
 
-- [ ] **Step 1: Add failing tests for test question creation**
+- [x] **Step 1: Add failing tests for test question creation**
 
 Append to `tests/core.test.mjs`:
 
@@ -1035,7 +1035,7 @@ test("createVocabularyTest samples questions across levels", async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -1045,7 +1045,7 @@ npm test
 
 Expected: FAIL because `createVocabularyTest` is missing.
 
-- [ ] **Step 3: Add test creation helper**
+- [x] **Step 3: Add test creation helper**
 
 Add to `core`:
 
@@ -1066,7 +1066,7 @@ Add to `core`:
     }
 ```
 
-- [ ] **Step 4: Add app test flow**
+- [x] **Step 4: Add app test flow**
 
 Add these properties to `app`:
 
@@ -1132,7 +1132,7 @@ Add these app methods:
 
 Call `this.renderTest();` inside `render()`.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run:
 
@@ -1142,7 +1142,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
@@ -1159,7 +1159,7 @@ git commit -m "feat: add vocabulary test flow"
 - Modify: `index.html`
 - Modify: `tests/core.test.mjs`
 
-- [ ] **Step 1: Add failing tests for WPM rate and similarity**
+- [x] **Step 1: Add failing tests for WPM rate and similarity**
 
 Append to `tests/core.test.mjs`:
 
@@ -1178,7 +1178,7 @@ test("textSimilarity rewards matching words", async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -1188,7 +1188,7 @@ npm test
 
 Expected: FAIL because speech helpers are missing.
 
-- [ ] **Step 3: Add speech helper functions**
+- [x] **Step 3: Add speech helper functions**
 
 Add to `core`:
 
@@ -1212,7 +1212,7 @@ Add to `core`:
     }
 ```
 
-- [ ] **Step 4: Add speech app methods and controls**
+- [x] **Step 4: Add speech app methods and controls**
 
 Add these event bindings inside `bindEvents()`:
 
@@ -1300,7 +1300,7 @@ Add these app methods:
     }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run:
 
@@ -1310,7 +1310,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
@@ -1327,7 +1327,7 @@ git commit -m "feat: add reading practice"
 - Modify: `index.html`
 - Modify: `tests/core.test.mjs`
 
-- [ ] **Step 1: Add failing tests for export payload and import validation**
+- [x] **Step 1: Add failing tests for export payload and import validation**
 
 Append to `tests/core.test.mjs`:
 
@@ -1348,7 +1348,7 @@ test("parseProgress rejects invalid payloads", async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -1358,7 +1358,7 @@ npm test
 
 Expected: FAIL because persistence helpers are missing.
 
-- [ ] **Step 3: Add core persistence helpers**
+- [x] **Step 3: Add core persistence helpers**
 
 Add to `core`:
 
@@ -1376,7 +1376,7 @@ Add to `core`:
     }
 ```
 
-- [ ] **Step 4: Add app persistence methods and event bindings**
+- [x] **Step 4: Add app persistence methods and event bindings**
 
 Add this storage key near the app:
 
@@ -1451,7 +1451,7 @@ Add these app methods:
     }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run:
 
@@ -1461,7 +1461,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
@@ -1478,7 +1478,7 @@ git commit -m "feat: persist progress locally"
 - Modify: `index.html`
 - Modify: `tests/index-contract.test.mjs`
 
-- [ ] **Step 1: Add static checks for UX contract**
+- [x] **Step 1: Add static checks for UX contract**
 
 Append to `tests/index-contract.test.mjs`:
 
@@ -1497,7 +1497,7 @@ test("index.html includes responsive and status styling", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it passes or fails for real omissions**
+- [x] **Step 2: Run test to verify it passes or fails for real omissions**
 
 Run:
 
@@ -1507,12 +1507,12 @@ npm test
 
 Expected: PASS if previous CSS is complete. If it fails, add the missing class from the test to `index.html`.
 
-- [ ] **Step 3: Open the file in a browser for manual verification**
+- [x] **Step 3: Open the file in a browser for manual verification**
 
 Open this file directly:
 
 ```text
-C:\Users\rudyc\Documents\01_Codex project\英语单词学习\index.html
+C:\Users\rudyc\Documents\01_Codex project\鑻辫鍗曡瘝瀛︿範\index.html
 ```
 
 Manual checks:
@@ -1531,7 +1531,7 @@ Manual checks:
 - Reset asks for confirmation.
 - At a narrow mobile width, content stays single-column with no horizontal scrolling.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Run:
 
@@ -1547,7 +1547,7 @@ git commit -m "style: polish MVP interface"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-05-26-context-vocabulary-trainer-mvp.md`
 
-- [ ] **Step 1: Run full automated test suite**
+- [x] **Step 1: Run full automated test suite**
 
 Run:
 
@@ -1557,7 +1557,7 @@ npm test
 
 Expected: all tests PASS.
 
-- [ ] **Step 2: Check git status**
+- [x] **Step 2: Check git status**
 
 Run:
 
@@ -1567,7 +1567,7 @@ git status --short
 
 Expected: only the plan file may be modified if checkboxes were updated.
 
-- [ ] **Step 3: Commit plan checkbox updates if present**
+- [x] **Step 3: Commit plan checkbox updates if present**
 
 Run:
 
@@ -1578,7 +1578,7 @@ git commit -m "docs: update implementation plan progress"
 
 If the plan file has no changes, skip this commit.
 
-- [ ] **Step 4: Final status report**
+- [x] **Step 4: Final status report**
 
 Report:
 
@@ -1603,3 +1603,4 @@ Report:
 - Import/export/reset: covered by Task 8.
 - Responsive practical UI: covered by Task 4 and Task 9.
 - No backend, no dependencies, no AI calls: preserved throughout the file structure and task constraints.
+
