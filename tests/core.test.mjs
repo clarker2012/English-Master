@@ -11,6 +11,7 @@ async function loadCore() {
     document: { addEventListener() {} },
     localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
     speechSynthesis: undefined,
+    SpeechSynthesisUtterance: undefined,
     Blob,
     URL: { createObjectURL() { return "blob:test"; }, revokeObjectURL() {} },
     setTimeout,
@@ -80,6 +81,7 @@ function createFakeElement(id, className = "") {
       this.listeners[type] = handler;
     },
     querySelectorAll(selector) {
+      if (selector === "[data-voice-style-id]") return this.voiceStyleButtons || [];
       if (selector !== "[data-reading-event]" || !this.innerHTML.includes("data-reading-event")) return [];
       this.readingButtons = ["readSmooth", "readOkay", "readDifficult"].map((eventName) => ({
         dataset: { readingEvent: eventName },
@@ -89,6 +91,9 @@ function createFakeElement(id, className = "") {
         }
       }));
       return this.readingButtons;
+    },
+    setAttribute(name, value) {
+      this[name] = value;
     }
   };
 }
@@ -125,6 +130,11 @@ async function loadAppWithFakeDocument(options = {}) {
     "wpm-control",
     "wpm-value",
     "reading-feedback",
+    "voice-sample",
+    "voice-style-name",
+    "save-voice-style",
+    "voice-style-status",
+    "voice-style-list",
     "passage-title",
     "passage",
     "translation",
@@ -176,7 +186,8 @@ async function loadAppWithFakeDocument(options = {}) {
     window: {},
     document,
     localStorage: options.localStorage || { getItem() { return null; }, setItem() {}, removeItem() {} },
-    speechSynthesis: undefined,
+    speechSynthesis: options.speechSynthesis,
+    SpeechSynthesisUtterance: options.SpeechSynthesisUtterance,
     Blob,
     URL: options.URL || {
       createObjectURL() { return "blob:test"; },
@@ -586,6 +597,57 @@ test("one account can switch between independent learning roles", async () => {
   app.switchLearningProfile(firstProfileId);
   assert.equal(app.state.user.estimatedVocabulary, 7200);
   assert.equal(app.getCurrentAccount().profiles.length, 2);
+});
+
+test("voice style records can be named saved and applied", async () => {
+  const storage = createMemoryStorage();
+  const { app, elements } = await loadAppWithFakeDocument({ localStorage: storage });
+
+  const style = app.saveVoiceStyleRecord({
+    name: "BBC announcer",
+    sampleName: "dialogue.mp3",
+    sampleDataUrl: "data:audio/mp3;base64,test",
+    durationSeconds: 22
+  });
+
+  const saved = JSON.parse(storage.getItem("context-vocabulary-trainer-voice-styles"));
+  assert.equal(saved.styles.length, 1);
+  assert.equal(saved.activeStyleId, style.id);
+  assert.equal(app.getActiveVoiceStyle().name, "BBC announcer");
+  assert.match(elements.get("voice-style-list").innerHTML, /BBC announcer/);
+  assert.match(elements.get("voice-style-status").textContent, /Active tone|Applied/);
+});
+
+test("active voice style adjusts lead reading speech settings", async () => {
+  let spokenUtterance;
+  class FakeUtterance {
+    constructor(text) {
+      this.text = text;
+    }
+  }
+  const speechSynthesis = {
+    cancel() {},
+    getVoices() {
+      return [{ lang: "en-US", name: "Natural", voiceURI: "natural", localService: false }];
+    },
+    speak(utterance) {
+      spokenUtterance = utterance;
+    }
+  };
+  const { app } = await loadAppWithFakeDocument({ speechSynthesis, SpeechSynthesisUtterance: FakeUtterance });
+  app.saveVoiceStyleRecord({
+    name: "Slow announcer",
+    sampleName: "broadcast.wav",
+    sampleDataUrl: "data:audio/wav;base64,test",
+    durationSeconds: 30
+  });
+
+  app.speak("Read this sentence.");
+
+  assert.equal(spokenUtterance.text, "Read this sentence.");
+  assert.equal(spokenUtterance.rate, 0.92);
+  assert.equal(spokenUtterance.pitch, 0.96);
+  assert.equal(spokenUtterance.voice.name, "Natural");
 });
 
 test("importProgress leaves current state intact when saving imported progress fails", async () => {

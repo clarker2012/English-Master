@@ -159,6 +159,32 @@
       opacity: 0.35;
       transition: height 80ms linear, opacity 80ms linear;
     }
+    .voice-style-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .voice-style-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .voice-style-form {
+      display: grid;
+      gap: 8px;
+    }
+    .voice-style-form input {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      width: 100%;
+      background: var(--surface);
+      color: var(--ink);
+    }
     pre { white-space: pre-wrap; overflow: auto; }
     @media (max-width: 820px) {
       .app-shell { padding: 14px; }
@@ -231,6 +257,16 @@
                 <button id="start-speaking" type="button">Start speaking</button>
               </div>
               <div id="reading-feedback" class="feedback"></div>
+            </section>
+            <section class="panel voice-style-panel">
+              <h2>Voice style</h2>
+              <div class="voice-style-form">
+                <input id="voice-sample" type="file" accept="audio/*">
+                <input id="voice-style-name" type="text" placeholder="Name this tone">
+                <button id="save-voice-style" type="button">Save and apply voice</button>
+              </div>
+              <p id="voice-style-status" class="muted">Upload an English dialogue sample to create a reusable lead-reading tone.</p>
+              <div id="voice-style-list" class="voice-style-list"></div>
             </section>
           </aside>
         </section>
@@ -725,10 +761,12 @@
     const storageKey = "context-vocabulary-trainer-progress";
     const testStorageKey = "context-vocabulary-trainer-test-session";
     const accountStorageKey = "context-vocabulary-trainer-accounts";
+    const voiceStyleStorageKey = "context-vocabulary-trainer-voice-styles";
 
     const app = {
       state: core.createDefaultState(),
       accountStore: { accounts: [], currentAccountId: null },
+      voiceStyleStore: { styles: [], activeStyleId: null },
       assessmentWordBank: [],
       passage: null,
       currentSentenceIndex: 0,
@@ -741,6 +779,7 @@
 
       async init() {
         this.accountStore = this.loadAccountStore();
+        this.voiceStyleStore = this.loadVoiceStyleStore();
         this.state = this.loadState();
         this.passage = core.generatePassage(this.state);
         this.bindEvents();
@@ -799,6 +838,7 @@
         document.getElementById("account-logout").addEventListener("click", () => this.logoutAccount());
         document.getElementById("create-profile").addEventListener("click", () => this.createLearningProfile());
         document.getElementById("profile-select").addEventListener("change", (event) => this.switchLearningProfile(event.target.value));
+        document.getElementById("save-voice-style").addEventListener("click", () => this.saveVoiceStyleFromForm());
       },
 
       normalizeEmail(value) {
@@ -929,6 +969,111 @@
         const guestStatus = document.getElementById("account-guest-status");
         if (status) status.textContent = message;
         if (guestStatus) guestStatus.textContent = message;
+      },
+
+      loadVoiceStyleStore() {
+        try {
+          const raw = localStorage.getItem(voiceStyleStorageKey);
+          if (!raw) return { styles: [], activeStyleId: null };
+          const parsed = JSON.parse(raw);
+          return {
+            styles: Array.isArray(parsed.styles) ? parsed.styles : [],
+            activeStyleId: typeof parsed.activeStyleId === "string" ? parsed.activeStyleId : null
+          };
+        } catch (error) {
+          return { styles: [], activeStyleId: null };
+        }
+      },
+
+      saveVoiceStyleStore() {
+        localStorage.setItem(voiceStyleStorageKey, JSON.stringify(this.voiceStyleStore));
+      },
+
+      getActiveVoiceStyle() {
+        return this.voiceStyleStore.styles.find((style) => style.id === this.voiceStyleStore.activeStyleId) || null;
+      },
+
+      inferVoiceStyleSettings(durationSeconds = 0) {
+        const duration = Number(durationSeconds) || 0;
+        return {
+          rate: duration >= 20 ? 0.92 : duration >= 8 ? 0.98 : 1,
+          pitch: duration >= 15 ? 0.96 : 1.04
+        };
+      },
+
+      saveVoiceStyleRecord({ name, sampleName, sampleDataUrl, durationSeconds = 0 }) {
+        const settings = this.inferVoiceStyleSettings(durationSeconds);
+        const style = {
+          id: `voice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: String(name || "Broadcast voice").trim() || "Broadcast voice",
+          sampleName: sampleName || "reference audio",
+          sampleDataUrl: sampleDataUrl || "",
+          durationSeconds: Number(durationSeconds) || 0,
+          rate: settings.rate,
+          pitch: settings.pitch,
+          createdAt: new Date().toISOString()
+        };
+        this.voiceStyleStore.styles.push(style);
+        this.voiceStyleStore.activeStyleId = style.id;
+        this.saveVoiceStyleStore();
+        this.renderVoiceStyles();
+        return style;
+      },
+
+      readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(new Error("Could not read audio file"));
+          reader.readAsDataURL(file);
+        });
+      },
+
+      measureAudioDuration(dataUrl) {
+        return new Promise((resolve) => {
+          const audio = new Audio();
+          audio.preload = "metadata";
+          audio.onloadedmetadata = () => resolve(Number.isFinite(audio.duration) ? audio.duration : 0);
+          audio.onerror = () => resolve(0);
+          audio.src = dataUrl;
+        });
+      },
+
+      async saveVoiceStyleFromForm() {
+        const fileInput = document.getElementById("voice-sample");
+        const nameInput = document.getElementById("voice-style-name");
+        const file = fileInput?.files?.[0];
+        if (!file) {
+          this.writeVoiceStyleStatus("Please choose an English dialogue audio sample first.");
+          return;
+        }
+        try {
+          const sampleDataUrl = await this.readFileAsDataUrl(file);
+          const durationSeconds = await this.measureAudioDuration(sampleDataUrl);
+          const style = this.saveVoiceStyleRecord({
+            name: nameInput?.value || file.name.replace(/\.[^.]+$/, ""),
+            sampleName: file.name,
+            sampleDataUrl,
+            durationSeconds
+          });
+          if (nameInput) nameInput.value = "";
+          if (fileInput) fileInput.value = "";
+          this.writeVoiceStyleStatus(`Applied "${style.name}". Lead reading will use this tone profile.`);
+        } catch (error) {
+          this.writeVoiceStyleStatus("Could not save this audio sample. Try a shorter WAV or MP3 clip.");
+        }
+      },
+
+      applyVoiceStyle(styleId) {
+        if (!this.voiceStyleStore.styles.some((style) => style.id === styleId)) return;
+        this.voiceStyleStore.activeStyleId = styleId;
+        this.saveVoiceStyleStore();
+        this.renderVoiceStyles();
+      },
+
+      writeVoiceStyleStatus(message) {
+        const status = document.getElementById("voice-style-status");
+        if (status) status.textContent = message;
       },
 
       loadState() {
@@ -1100,6 +1245,7 @@
 
       render() {
         this.renderAccount();
+        this.renderVoiceStyles();
         this.renderDashboard();
         this.renderPassage();
         const selectedWord = this.state.vocabulary.find((word) => word.id === this.selectedWordId);
@@ -1132,6 +1278,26 @@
         select.innerHTML = account.profiles
           .map((item) => `<option value="${core.escapeHtml(item.id)}" ${item.id === account.currentProfileId ? "selected" : ""}>${core.escapeHtml(item.name)}</option>`)
           .join("");
+      },
+
+      renderVoiceStyles() {
+        const list = document.getElementById("voice-style-list");
+        const status = document.getElementById("voice-style-status");
+        if (!list) return;
+        if (!this.voiceStyleStore.styles.length) {
+          list.innerHTML = "";
+          return;
+        }
+        const activeStyle = this.getActiveVoiceStyle();
+        if (status && activeStyle) {
+          status.textContent = `Active tone: ${activeStyle.name}. Static mode uses the closest natural browser voice until a cloning service is connected.`;
+        }
+        list.innerHTML = this.voiceStyleStore.styles.map((style) => (
+          `<div class="voice-style-item"><div><strong>${core.escapeHtml(style.name)}</strong><p class="muted">${core.escapeHtml(style.sampleName)} · ${Math.round(style.durationSeconds || 0)}s</p></div><button type="button" data-voice-style-id="${core.escapeHtml(style.id)}">${style.id === this.voiceStyleStore.activeStyleId ? "Applied" : "Apply"}</button></div>`
+        )).join("");
+        list.querySelectorAll("[data-voice-style-id]").forEach((button) => {
+          button.addEventListener("click", () => this.applyVoiceStyle(button.dataset.voiceStyleId));
+        });
       },
 
       renderDashboard() {
@@ -1202,10 +1368,15 @@
           return;
         }
         synth.cancel();
+        const activeStyle = this.getActiveVoiceStyle();
         const utterance = new window.SpeechSynthesisUtterance(text);
         utterance.lang = "en-US";
-        utterance.rate = Math.min(1.05, core.mapWpmToRate(this.state.user.targetWpm));
-        utterance.pitch = 1.05;
+        utterance.rate = activeStyle
+          ? Math.max(0.75, Math.min(1.25, activeStyle.rate))
+          : Math.min(1.05, core.mapWpmToRate(this.state.user.targetWpm));
+        utterance.pitch = activeStyle
+          ? Math.max(0.75, Math.min(1.35, activeStyle.pitch))
+          : 1.05;
         utterance.volume = 1;
         const voice = this.getEnglishVoice();
         if (voice) utterance.voice = voice;
