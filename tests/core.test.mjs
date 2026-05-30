@@ -130,9 +130,9 @@ async function loadAppWithFakeDocument(options = {}) {
     "wpm-control",
     "wpm-value",
     "reading-feedback",
-    "voice-sample",
     "voice-style-name",
-    "save-voice-style",
+    "listen-voice-style",
+    "stop-voice-style",
     "voice-style-status",
     "voice-style-list",
     "passage-title",
@@ -643,6 +643,8 @@ test("active voice style adjusts lead reading speech settings", async () => {
   });
 
   app.speak("Read this sentence.");
+  await Promise.resolve();
+  await Promise.resolve();
 
   assert.equal(spokenUtterance.text, "Read this sentence.");
   assert.equal(spokenUtterance.rate, 0.92);

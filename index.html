@@ -261,11 +261,13 @@
             <section class="panel voice-style-panel">
               <h2>Voice style</h2>
               <div class="voice-style-form">
-                <input id="voice-sample" type="file" accept="audio/*">
                 <input id="voice-style-name" type="text" placeholder="Name this tone">
-                <button id="save-voice-style" type="button">Save and apply voice</button>
+                <div class="button-grid">
+                  <button id="listen-voice-style" type="button">Listen to sample</button>
+                  <button id="stop-voice-style" type="button" disabled>Stop and apply</button>
+                </div>
               </div>
-              <p id="voice-style-status" class="muted">Upload an English dialogue sample to create a reusable lead-reading tone.</p>
+              <p id="voice-style-status" class="muted">Play an English dialogue or announcer clip near the microphone, then save it as a reusable cloned-reading tone.</p>
               <div id="voice-style-list" class="voice-style-list"></div>
             </section>
           </aside>
@@ -775,6 +777,7 @@
       selectedWordId: null,
       microphoneStream: null,
       microphoneMonitor: null,
+      voiceStyleRecorder: null,
       testSession: { questions: [], index: 0, answers: [], result: null },
 
       async init() {
@@ -838,7 +841,8 @@
         document.getElementById("account-logout").addEventListener("click", () => this.logoutAccount());
         document.getElementById("create-profile").addEventListener("click", () => this.createLearningProfile());
         document.getElementById("profile-select").addEventListener("change", (event) => this.switchLearningProfile(event.target.value));
-        document.getElementById("save-voice-style").addEventListener("click", () => this.saveVoiceStyleFromForm());
+        document.getElementById("listen-voice-style").addEventListener("click", () => this.startVoiceStyleListening());
+        document.getElementById("stop-voice-style").addEventListener("click", () => this.stopVoiceStyleListening());
       },
 
       normalizeEmail(value) {
@@ -1001,13 +1005,14 @@
         };
       },
 
-      saveVoiceStyleRecord({ name, sampleName, sampleDataUrl, durationSeconds = 0 }) {
+      saveVoiceStyleRecord({ name, sampleName, sampleDataUrl, durationSeconds = 0, source = "microphone" }) {
         const settings = this.inferVoiceStyleSettings(durationSeconds);
         const style = {
           id: `voice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           name: String(name || "Broadcast voice").trim() || "Broadcast voice",
           sampleName: sampleName || "reference audio",
           sampleDataUrl: sampleDataUrl || "",
+          source,
           durationSeconds: Number(durationSeconds) || 0,
           rate: settings.rate,
           pitch: settings.pitch,
@@ -1020,12 +1025,12 @@
         return style;
       },
 
-      readFileAsDataUrl(file) {
+      blobToDataUrl(blob) {
         return new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(String(reader.result || ""));
-          reader.onerror = () => reject(new Error("Could not read audio file"));
-          reader.readAsDataURL(file);
+          reader.onerror = () => reject(new Error("Could not read reference audio"));
+          reader.readAsDataURL(blob);
         });
       },
 
@@ -1039,28 +1044,60 @@
         });
       },
 
-      async saveVoiceStyleFromForm() {
-        const fileInput = document.getElementById("voice-sample");
-        const nameInput = document.getElementById("voice-style-name");
-        const file = fileInput?.files?.[0];
-        if (!file) {
-          this.writeVoiceStyleStatus("Please choose an English dialogue audio sample first.");
+      async startVoiceStyleListening() {
+        if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder !== "function") {
+          this.writeVoiceStyleStatus("Microphone recording is unavailable in this browser.");
           return;
         }
         try {
-          const sampleDataUrl = await this.readFileAsDataUrl(file);
+          const stream = await this.getMicrophoneStream();
+          const chunks = [];
+          const recorder = new MediaRecorder(stream);
+          recorder.ondataavailable = (event) => {
+            if (event.data?.size) chunks.push(event.data);
+          };
+          this.voiceStyleRecorder = { recorder, chunks, startedAt: Date.now() };
+          recorder.start();
+          document.getElementById("listen-voice-style").disabled = true;
+          document.getElementById("stop-voice-style").disabled = false;
+          this.writeVoiceStyleStatus("Listening... play the announcer or dialogue sample near the microphone.");
+        } catch (error) {
+          this.writeVoiceStyleStatus("Microphone permission is required to capture a reference tone.");
+        }
+      },
+
+      async stopVoiceStyleListening() {
+        const capture = this.voiceStyleRecorder;
+        if (!capture) return;
+        const { recorder } = capture;
+        const stopped = new Promise((resolve) => {
+          recorder.onstop = resolve;
+        });
+        if (recorder.state !== "inactive") recorder.stop();
+        await stopped;
+        document.getElementById("listen-voice-style").disabled = false;
+        document.getElementById("stop-voice-style").disabled = true;
+        this.voiceStyleRecorder = null;
+        const blob = new Blob(capture.chunks, { type: recorder.mimeType || "audio/webm" });
+        if (!blob.size) {
+          this.writeVoiceStyleStatus("No reference audio was captured. Try again with the source audio louder.");
+          return;
+        }
+        const nameInput = document.getElementById("voice-style-name");
+        try {
+          const sampleDataUrl = await this.blobToDataUrl(blob);
           const durationSeconds = await this.measureAudioDuration(sampleDataUrl);
           const style = this.saveVoiceStyleRecord({
-            name: nameInput?.value || file.name.replace(/\.[^.]+$/, ""),
-            sampleName: file.name,
+            name: nameInput?.value || "Captured announcer voice",
+            sampleName: `microphone-capture-${new Date().toISOString().slice(0, 19)}.webm`,
             sampleDataUrl,
-            durationSeconds
+            durationSeconds: durationSeconds || ((Date.now() - capture.startedAt) / 1000),
+            source: "microphone"
           });
           if (nameInput) nameInput.value = "";
-          if (fileInput) fileInput.value = "";
-          this.writeVoiceStyleStatus(`Applied "${style.name}". Lead reading will use this tone profile.`);
+          this.writeVoiceStyleStatus(`Applied "${style.name}". Lead reading will request cloned audio from the local voice-clone service.`);
         } catch (error) {
-          this.writeVoiceStyleStatus("Could not save this audio sample. Try a shorter WAV or MP3 clip.");
+          this.writeVoiceStyleStatus("Could not save the microphone sample. Try a shorter, clearer clip.");
         }
       },
 
@@ -1290,10 +1327,10 @@
         }
         const activeStyle = this.getActiveVoiceStyle();
         if (status && activeStyle) {
-          status.textContent = `Active tone: ${activeStyle.name}. Static mode uses the closest natural browser voice until a cloning service is connected.`;
+          status.textContent = `Active tone: ${activeStyle.name}. Local cloning service will be used first; browser TTS is only a fallback.`;
         }
         list.innerHTML = this.voiceStyleStore.styles.map((style) => (
-          `<div class="voice-style-item"><div><strong>${core.escapeHtml(style.name)}</strong><p class="muted">${core.escapeHtml(style.sampleName)} · ${Math.round(style.durationSeconds || 0)}s</p></div><button type="button" data-voice-style-id="${core.escapeHtml(style.id)}">${style.id === this.voiceStyleStore.activeStyleId ? "Applied" : "Apply"}</button></div>`
+          `<div class="voice-style-item"><div><strong>${core.escapeHtml(style.name)}</strong><p class="muted">${core.escapeHtml(style.source || "reference")} · ${Math.round(style.durationSeconds || 0)}s</p></div><button type="button" data-voice-style-id="${core.escapeHtml(style.id)}">${style.id === this.voiceStyleStore.activeStyleId ? "Applied" : "Apply"}</button></div>`
         )).join("");
         list.querySelectorAll("[data-voice-style-id]").forEach((button) => {
           button.addEventListener("click", () => this.applyVoiceStyle(button.dataset.voiceStyleId));
@@ -1359,7 +1396,50 @@
           || null;
       },
 
+      async speakWithClonedVoice(text, style, onEnd) {
+        if (!style?.sampleDataUrl || typeof fetch !== "function") return false;
+        try {
+          const response = await fetch("http://127.0.0.1:5055/synthesize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text,
+              voiceName: style.name,
+              referenceAudio: style.sampleDataUrl,
+              engine: "openvoice"
+            })
+          });
+          if (!response.ok) throw new Error("Voice clone service unavailable");
+          const audioBlob = await response.blob();
+          const audioUrl = URL.createObjectURL(audioBlob);
+          const audio = new Audio(audioUrl);
+          audio.onended = () => {
+            URL.revokeObjectURL(audioUrl);
+            if (onEnd) onEnd();
+          };
+          audio.onerror = () => {
+            URL.revokeObjectURL(audioUrl);
+            this.speakWithBrowserVoice(text, onEnd);
+          };
+          await audio.play();
+          return true;
+        } catch (error) {
+          return false;
+        }
+      },
+
       speak(text, onEnd) {
+        const activeStyle = this.getActiveVoiceStyle();
+        if (activeStyle) {
+          this.speakWithClonedVoice(text, activeStyle, onEnd).then((handled) => {
+            if (!handled) this.speakWithBrowserVoice(text, onEnd);
+          });
+          return;
+        }
+        this.speakWithBrowserVoice(text, onEnd);
+      },
+
+      speakWithBrowserVoice(text, onEnd) {
         const feedback = document.getElementById("reading-feedback");
         const synth = window.speechSynthesis;
         if (!synth || typeof window.SpeechSynthesisUtterance !== "function") {
